@@ -495,9 +495,9 @@ function startFunnel(productKey) {
 }
 
 function askQuick(text, options, fieldKey) {
-  appendMessage(text, 'bot');
   const group = document.createElement('div');
   group.className = 'quick-group';
+
   options.forEach(opt => {
     const b = document.createElement('button');
     b.className = 'quick-btn';
