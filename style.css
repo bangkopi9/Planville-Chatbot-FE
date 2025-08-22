@@ -407,3 +407,14 @@ body.light-mode #chatbot-input {
   border: none;
   cursor: pointer;
 }
+
+
+/* Hard kill any leftover intro/robot blocks */
+.pv-hero, [aria-label="Planville AI intro"], [aria-label="Planville Robot waving"], .pv-balloon {
+  display: none !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
