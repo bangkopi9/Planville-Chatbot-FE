@@ -1,101 +1,163 @@
 <!DOCTYPE html>
-
-<html lang="en">
+<html lang="de">
 <head>
-<meta charset="utf-8"/>
-<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Planville AI Chatbot</title>
-<link href="style.css" rel="stylesheet"/>
-</head>
-<body>
-<div class="pv-balloon" role="status">
-<span>Hi! Ich bin dein Planville Assistent. Wobei darf ich helfen?</span>
-</div>
-</div>
-</div>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Planville AI Chatbot</title>
+  <link rel="stylesheet" href="style.css" />
 
-<!-- 📌 Sidebar FAQ -->
-<div class="faq-sidebar">
-<h2>Frequently Asked Questions</h2>
-<ul id="faq-list"></ul>
-</div>
-<!-- 💬 Main Chatbot UI -->
-<div class="chatbot-container">
-<div class="chatbot-header">
-<img alt="Planville Logo" class="chatbot-logo" src="planville-logo.png"/>
-<h1>Chat with Planville AI</h1>
-<label class="switch">
-<input id="modeToggle" type="checkbox"/>
-<span class="slider"></span>
-</label>
-</div>
-<div id="chatbot-log"></div>
-<div class="chatbot-message bot-message typing-bubble" id="typing-bubble" style="display:none">...</div>
-<form id="chatbot-form">
-<input autocomplete="off" id="chatbot-input" placeholder="Type your question..." type="text"/>
-<button type="submit">💬</button>
-</form>
-<div class="language-switcher">
-<label for="langSwitcher">🌐 Language:</label>
-<select id="langSwitcher">
-<option value="de">🇩🇪 Deutsch</option>
-<option value="en">🇬🇧 English</option>
-</select>
-</div>
-</div>
-<!-- 📋 CONFIGURATOR FORM (SIMPLE) -->
-<div class="config-form" id="configForm" style="display: none;">
-<h2>Produkt wählen</h2>
-<select id="productSelect">
-<option value="">Bitte auswählen</option>
-<option value="PV-Anlage">PV-Anlage</option>
-<option value="Dachsanierung">Dachsanierung</option>
-<option value="Wärmepumpe">Wärmepumpe</option>
-<option value="Klimaanlage">Klimaanlage</option>
-<option value="Speicherlösung">Speicherlösung</option>
-</select>
-<h2>Kontaktdaten</h2>
-<input id="vorname" placeholder="Vorname" required="" type="text"/>
-<input id="nachname" placeholder="Nachname" required="" type="text"/>
-<input id="telefon" placeholder="Telefonnummer" required="" type="tel"/>
-<button id="submitConfig">Absenden</button>
-</div>
-<!-- 🎯 FORM WIZARD (DOUBLE CLICK MODE) -->
-<div class="form-wizard" id="form-wizard" style="display:none">
-<h2>Jetzt starten</h2>
-<label for="product-choice">Produkt wählen:</label>
-<select id="product-choice">
-<option value="Photovoltaik">Photovoltaik</option>
-<option value="Wärmepumpe">Wärmepumpe</option>
-<option value="Klimaanlage">Klimaanlage</option>
-<option value="Dachsanierung">Dachsanierung</option>
-</select>
-<label for="fname">Vorname:</label>
-<input id="fname" required="" type="text"/>
-<label for="lname">Nachname:</label>
-<input id="lname" required="" type="text"/>
-<label for="phone">Telefonnummer:</label>
-<input id="phone" required="" type="tel"/>
-<button onclick="submitLead()">Absenden</button>
-</div>
-<!-- 🍪 Cookie Consent -->
-<div class="cookie-popup" id="cookie-banner">
-<p id="cookie-message">Diese Website verwendet Cookies, um Ihr Erlebnis zu verbessern.</p>
-<div class="cookie-buttons">
-<button onclick="acceptCookies()">Akzeptieren</button>
-<button onclick="rejectCookies()">Ablehnen</button>
-<button onclick="openSettings()">Einstellungen</button>
-</div>
-</div>
-<!-- ⚙️ Chatbot Logic -->
-<script defer="" src="chatbot.js"></script>
-<!-- 🧠 GA4 & Event Tracking -->
-<script>
+  <!-- ===== Global Config + API URL helper (PASTIKAN DOMAINNYA BENAR) ===== -->
+  <script>
+    // GANTI ke domain backend Railway kamu
+    window.CONFIG = {
+      BASE_API_URL: "https://web-production-44ece.up.railway.app"
+    };
+
+    // Bangun URL absolut ke backend
+    function apiURL(path) {
+      const base = (window.CONFIG?.BASE_API_URL || "").replace(/\/$/,"");
+      const p = path.startsWith("/") ? path : `/${path}`;
+      return base ? `${base}${p}` : p;
+    }
+
+    // (Opsional, tapi praktis) Rewriter: jika ada fetch ke /chat, /track, /save-config, arahkan ke backend
+    (function patchFetch(){
+      const orig = window.fetch;
+      window.fetch = function(input, init){
+        try {
+          const rewrite = (u) => {
+            // hanya rewrite kalau path relatif ke root FE
+            if (/^\/(chat|track|api\/chat|api\/track|save-config)(\/.*)?$/.test(u)) {
+              return apiURL(u);
+            }
+            return u;
+          };
+          if (typeof input === "string") {
+            input = rewrite(input);
+          } else if (input && input.url) {
+            // Request object
+            const url = rewrite(input.url);
+            if (url !== input.url) {
+              input = new Request(url, input);
+            }
+          }
+        } catch(_) {}
+        return orig(input, init);
+      };
+    })();
+  </script>
+</head>
+
+<body>
+  <!-- Intro balloon -->
+  <div class="pv-balloon" role="status">
+    <span>Hi! Ich bin dein Planville Assistent. Wobei darf ich helfen?</span>
+  </div>
+
+  <!-- 📌 Sidebar FAQ -->
+  <div class="faq-sidebar">
+    <h2>Frequently Asked Questions</h2>
+    <ul id="faq-list"></ul>
+  </div>
+
+  <!-- 💬 Main Chatbot UI -->
+  <div class="chatbot-container">
+    <div class="chatbot-header">
+      <img src="planville-logo.png" alt="Planville Logo" class="chatbot-logo" />
+      <h1>Chat with Planville AI</h1>
+
+      <!-- Dark/Light switch -->
+      <label class="switch">
+        <input type="checkbox" id="modeToggle" />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div id="chatbot-log"></div>
+    <div id="typing-bubble" class="chatbot-message bot-message typing-bubble" style="display:none">...</div>
+
+    <form id="chatbot-form">
+      <input id="chatbot-input" type="text" autocomplete="off" placeholder="Type your question..." />
+      <button type="submit">💬</button>
+    </form>
+
+    <!-- Language switch -->
+    <div class="language-switcher">
+      <label for="langSwitcher">🌐 Language:</label>
+      <select id="langSwitcher">
+        <option value="de">🇩🇪 Deutsch</option>
+        <option value="en">🇬🇧 English</option>
+      </select>
+    </div>
+
+    <!-- CTA mulai konfigurator (dipakai oleh onload listener) -->
+    <button id="startConfigBtn" type="button" class="cta-button">Jetzt starten</button>
+  </div>
+
+  <!-- 📋 CONFIGURATOR FORM (SIMPLE) -->
+  <div id="configForm" class="config-form" style="display:none;">
+    <h2>Produkt wählen</h2>
+    <select id="productSelect">
+      <option value="">Bitte auswählen</option>
+      <option value="PV-Anlage">PV-Anlage</option>
+      <option value="Dachsanierung">Dachsanierung</option>
+      <option value="Wärmepumpe">Wärmepumpe</option>
+      <option value="Klimaanlage">Klimaanlage</option>
+      <option value="Speicherlösung">Speicherlösung</option>
+    </select>
+
+    <h2>Kontaktdaten</h2>
+    <input type="text" id="vorname" placeholder="Vorname" required />
+    <input type="text" id="nachname" placeholder="Nachname" required />
+    <input type="tel" id="telefon" placeholder="Telefonnummer" required />
+    <button id="submitConfig" type="button">Absenden</button>
+  </div>
+
+  <!-- 🎯 FORM WIZARD (DOUBLE CLICK MODE) -->
+  <div id="form-wizard" class="form-wizard" style="display:none;">
+    <h2>Jetzt starten</h2>
+
+    <label for="product-choice">Produkt wählen:</label>
+    <select id="product-choice">
+      <option value="Photovoltaik">Photovoltaik</option>
+      <option value="Wärmepumpe">Wärmepumpe</option>
+      <option value="Klimaanlage">Klimaanlage</option>
+      <option value="Dachsanierung">Dachsanierung</option>
+    </select>
+
+    <label for="fname">Vorname:</label>
+    <input id="fname" type="text" required />
+
+    <label for="lname">Nachname:</label>
+    <input id="lname" type="text" required />
+
+    <label for="phone">Telefonnummer:</label>
+    <input id="phone" type="tel" required />
+
+    <button type="button" onclick="submitLead()">Absenden</button>
+  </div>
+
+  <!-- 🍪 Cookie Consent -->
+  <div id="cookie-banner" class="cookie-popup" style="display:none;">
+    <p id="cookie-message">Diese Website verwendet Cookies, um Ihr Erlebnis zu verbessern.</p>
+    <div class="cookie-buttons">
+      <button onclick="acceptCookies()">Akzeptieren</button>
+      <button onclick="rejectCookies()">Ablehnen</button>
+      <button onclick="openSettings()">Einstellungen</button>
+    </div>
+  </div>
+
+  <!-- ⚙️ Chatbot Logic (external) -->
+  <script defer src="chatbot.js"></script>
+
+  <!-- 🧠 GA4 & Event/Lead helpers + bootstrapping -->
+  <script>
+    /* ---------- Analytics ---------- */
     function enableGTM() {
-      const script = document.createElement("script");
-      script.src = "https://www.googletagmanager.com/gtag/js?id=G-YL8ECJ5V17";
-      script.async = true;
-      document.head.appendChild(script);
+      const s = document.createElement("script");
+      s.src = "https://www.googletagmanager.com/gtag/js?id=G-YL8ECJ5V17";
+      s.async = true;
+      document.head.appendChild(s);
 
       window.dataLayer = window.dataLayer || [];
       function gtag(){ dataLayer.push(arguments); }
@@ -107,9 +169,9 @@
     function trackChatEvent(question, lang) {
       if (typeof gtag !== "undefined") {
         gtag('event', 'chat_message', {
-          'event_category': 'chatbot',
-          'event_label': question,
-          'language': lang
+          event_category: 'chatbot',
+          event_label: question,
+          language: lang
         });
       }
     }
@@ -118,9 +180,9 @@
       if (typeof gtag !== "undefined") {
         const selectedLang = document.getElementById("langSwitcher").value;
         gtag('event', 'faq_click', {
-          'event_category': 'faq',
-          'event_label': text,
-          'language': selectedLang
+          event_category: 'faq',
+          event_label: text,
+          language: selectedLang
         });
       }
     }
@@ -128,8 +190,8 @@
     function trackConfigStart() {
       if (typeof gtag !== "undefined") {
         gtag('event', 'start_config_click', {
-          'event_category': 'konfigurator',
-          'event_label': 'Jetzt starten'
+          event_category: 'konfigurator',
+          event_label: 'Jetzt starten'
         });
       }
     }
@@ -137,27 +199,27 @@
     function trackConfigSubmit(product) {
       if (typeof gtag !== "undefined") {
         gtag('event', 'config_submit_success', {
-          'event_category': 'konfigurator',
-          'event_label': product
+          event_category: 'konfigurator',
+          event_label: product
         });
       }
     }
 
+    /* ---------- Cookie consent ---------- */
     function acceptCookies() {
       localStorage.setItem("cookieConsent", "accepted");
       document.getElementById("cookie-banner").style.display = "none";
       enableGTM();
     }
-
     function rejectCookies() {
       localStorage.setItem("cookieConsent", "rejected");
       document.getElementById("cookie-banner").style.display = "none";
     }
-
     function openSettings() {
       alert("Einstellungsseite ist noch in Entwicklung.");
     }
 
+    /* ---------- Lead form (wizard) ---------- */
     function submitLead() {
       const leadData = {
         produkt: document.getElementById("product-choice").value,
@@ -166,6 +228,7 @@
         telefon: document.getElementById("phone").value,
       };
 
+      // TODO: ganti ke Apps Script kamu jika dipakai
       const sheetURL = "https://script.google.com/macros/s/YOUR-SCRIPT-ID/exec";
 
       fetch(sheetURL, {
@@ -183,7 +246,8 @@
             });
           }
           document.getElementById("form-wizard").style.display = "none";
-          document.getElementById("startConfigBtn").style.display = "block";
+          const btn = document.getElementById("startConfigBtn");
+          if (btn) btn.style.display = "block";
         } else {
           alert("Fehler beim Absenden. Bitte erneut versuchen.");
         }
@@ -193,67 +257,44 @@
         alert("Verbindung fehlgeschlagen.");
       });
     }
+    window.submitLead = submitLead; // dipakai di onclick
 
-    window.onload = function () {
-      const consent = localStorage.getItem("cookieConsent");
-      if (!consent) {
-        document.getElementById("cookie-banner").style.display = "block";
-      } else if (consent === "accepted") {
-        enableGTM();
+    /* ---------- Konfigurator (simple) -> kirim ke backend kamu ---------- */
+    async function sendConfigSimple() {
+      const product = document.getElementById("productSelect").value;
+      const vorname = document.getElementById("vorname").value.trim();
+      const nachname = document.getElementById("nachname").value.trim();
+      const telefon = document.getElementById("telefon").value.trim();
+
+      if (!product || !vorname || !nachname || !telefon) {
+        alert("Bitte alle Felder ausfüllen.");
+        return;
       }
 
-      document.getElementById("startConfigBtn").addEventListener("click", () => {
-        document.getElementById("configForm").style.display = "block";
-        document.getElementById("startConfigBtn").style.display = "none";
-        trackConfigStart();
-      });
+      const payload = { vorname, nachname, telefon, product };
 
-      document.getElementById("startConfigBtn").addEventListener("dblclick", () => {
-        document.getElementById("form-wizard").style.display = "block";
-        document.getElementById("startConfigBtn").style.display = "none";
-      });
+      try {
+        const res = await fetch(apiURL("/save-config"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
 
-      document.getElementById("submitConfig").addEventListener("click", async () => {
-        const product = document.getElementById("productSelect").value;
-        const vorname = document.getElementById("vorname").value.trim();
-        const nachname = document.getElementById("nachname").value.trim();
-        const telefon = document.getElementById("telefon").value.trim();
-
-        if (!product || !vorname || !nachname || !telefon) {
-          alert("Bitte alle Felder ausfüllen.");
-          return;
+        if (res.ok) {
+          alert("Danke! Wir haben Ihre Anfrage erhalten.");
+          trackConfigSubmit(product);
+          document.getElementById("configForm").reset();
+          document.getElementById("configForm").style.display = "none";
+        } else {
+          alert("Fehler beim Senden. Bitte versuchen Sie es später erneut.");
         }
+      } catch (err) {
+        console.error(err);
+        alert("Serverfehler. Bitte später erneut versuchen.");
+      }
+    }
 
-        const payload = { vorname, nachname, telefon, product };
-
-        try {
-          const res = await fetch("http://localhost:8000/save-config", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-
-          if (res.ok) {
-            alert("Danke! Wir haben Ihre Anfrage erhalten.");
-            trackConfigSubmit(product);
-            document.getElementById("configForm").reset();
-            document.getElementById("configForm").style.display = "none";
-          } else {
-            alert("Fehler beim Senden. Bitte versuchen Sie es später erneut.");
-          }
-        } catch (err) {
-          console.error(err);
-          alert("Serverfehler. Bitte später erneut versuchen.");
-        }
-      });
-
-      // ✅ Initial Bot Greeting
-      setTimeout(() => {
-        appendMessage("Hallo! 👋 Was kann ich für Sie tun?<br>Bitte wählen Sie ein Thema:", "bot");
-        showProductOptions();
-      }, 1000);
-    };
-
+    /* ---------- Greeting & product quick actions ---------- */
     function showProductOptions() {
       const productOptions = [
         "Photovoltaikanlage ☀️",
@@ -274,21 +315,20 @@
       });
 
       document.getElementById("chatbot-log").appendChild(container);
-      scrollToBottom();
+      scrollToBottom?.();
     }
 
     function handleProductSelection(product) {
-      appendMessage(product, "user");
-
+      appendMessage?.(product, "user");
       setTimeout(() => {
-        appendMessage(`Was möchten Sie genau zu <b>${product}</b> wissen oder erreichen?`, "bot");
+        appendMessage?.(`Was möchten Sie genau zu <b>${product}</b> wissen oder erreichen?`, "bot");
       }, 500);
     }
 
     function handleFinalUserInput(userText) {
-      appendMessage(userText, "user");
+      appendMessage?.(userText, "user");
       setTimeout(() => {
-        appendMessage(
+        appendMessage?.(
           `Vielen Dank! 😊 Unser Team hilft Ihnen gerne weiter.<br><br>
           Für eine persönliche Beratung klicken Sie bitte auf den Button unten:`,
           "bot"
@@ -299,9 +339,45 @@
         btn.className = "cta-button";
         btn.innerText = "💬 Jetzt Kontakt aufnehmen";
         document.getElementById("chatbot-log").appendChild(btn);
-        scrollToBottom();
+        scrollToBottom?.();
       }, 1000);
     }
+    window.handleFinalUserInput = handleFinalUserInput;
+
+    /* ---------- Bootstrapping on load ---------- */
+    window.onload = function () {
+      // Cookie consent
+      const consent = localStorage.getItem("cookieConsent");
+      if (!consent) {
+        document.getElementById("cookie-banner").style.display = "block";
+      } else if (consent === "accepted") {
+        enableGTM();
+      }
+
+      // Start Config button
+      const btn = document.getElementById("startConfigBtn");
+      if (btn) {
+        btn.addEventListener("click", () => {
+          document.getElementById("configForm").style.display = "block";
+          btn.style.display = "none";
+          trackConfigStart();
+        });
+        btn.addEventListener("dblclick", () => {
+          document.getElementById("form-wizard").style.display = "block";
+          btn.style.display = "none";
+        });
+      }
+
+      // Simple config submit
+      const submitCfg = document.getElementById("submitConfig");
+      if (submitCfg) submitCfg.addEventListener("click", sendConfigSimple);
+
+      // Initial greeting
+      setTimeout(() => {
+        appendMessage?.("Hallo! 👋 Was kann ich für Sie tun?<br>Bitte wählen Sie ein Thema:", "bot");
+        showProductOptions();
+      }, 800);
+    };
   </script>
 </body>
 </html>
