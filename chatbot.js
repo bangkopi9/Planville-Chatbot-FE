@@ -1,18 +1,22 @@
-const productLabels = {
-  heatpump: { en: "Heat Pump 🔥", de: "Wärmepumpe 🔥" },
-  aircon: { en: "Air Conditioner ❄️", de: "Klimaanlage ❄️" },
-  pv: { en: "Photovoltaic System ☀️", de: "Photovoltaikanlage ☀️" },
-  roof: { en: "Roof Renovation 🛠️", de: "Dachsanierung 🛠️" },
-  tenant: { en: "Tenant Power 🏠", de: "Mieterstrom 🏠" },
-};
-
-// Helper: normalize base URL
+// ========================
+// 🔧 Helpers & Config
+// ========================
 function _baseURL() {
   try {
-    const b = (typeof CONFIG !== "undefined" && CONFIG.BASE_API_URL) ? CONFIG.BASE_API_URL : "";
+    let b = (typeof CONFIG !== "undefined" && CONFIG.BASE_API_URL) ? CONFIG.BASE_API_URL.trim() : "";
+    if (!b) return "";
+    if (!/^https?:\/\//i.test(b)) b = "https://" + b; // auto add scheme
     return b.endsWith("/") ? b.slice(0, -1) : b;
   } catch(e) { return ""; }
 }
+
+const productLabels = {
+  heatpump: { en: "Heat Pump 🔥", de: "Wärmepumpe 🔥" },
+  aircon:   { en: "Air Conditioner ❄️", de: "Klimaanlage ❄️" },
+  pv:       { en: "Photovoltaic System ☀️", de: "Photovoltaikanlage ☀️" },
+  roof:     { en: "Roof Renovation 🛠️",    de: "Dachsanierung 🛠️" },
+  tenant:   { en: "Tenant Power 🏠",        de: "Mieterstrom 🏠" },
+};
 
 // ========================
 // 📚 FAQ Multilingual Data
@@ -33,34 +37,33 @@ const faqTexts = {
 // ========================
 // 🎯 Element Selectors
 // ========================
-const chatLog = document.getElementById("chatbot-log");
-const form = document.getElementById("chatbot-form");
-const input = document.getElementById("chatbot-input");
-const toggle = document.getElementById("modeToggle");
-const typingBubble = document.getElementById("typing-bubble");
-const langSwitcher = document.getElementById("langSwitcher");
+const chatLog       = document.getElementById("chatbot-log");
+const form          = document.getElementById("chatbot-form");
+const input         = document.getElementById("chatbot-input");
+const toggle        = document.getElementById("modeToggle");
+const typingBubble  = document.getElementById("typing-bubble");
+const langSwitcher  = document.getElementById("langSwitcher");
 
 // ========================
-// 🧠 Load Chat History from localStorage
+// 🧠 Load Chat History
 // ========================
-let chatHistory = JSON.parse(localStorage.getItem("chatHistory")) || [];
+let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
 
 function loadChatHistory() {
-  chatHistory.forEach(entry => {
-    appendMessage(entry.message, entry.sender, false);
-  });
+  chatHistory.forEach(entry => appendMessage(entry.message, entry.sender, false));
 }
 
 window.onload = () => {
-  const selectedLang = localStorage.getItem("selectedLang") || "de";
+  const selectedLang = localStorage.getItem("selectedLang") || (CONFIG.LANG_DEFAULT || "de");
   langSwitcher.value = selectedLang;
   updateFAQ(selectedLang);
-  updateUITexts("de");
+  updateUITexts(selectedLang);
   loadChatHistory();
-  
+
   const consent = localStorage.getItem("cookieConsent");
   if (!consent) {
-    document.getElementById("cookie-banner").style.display = "block";
+    const banner = document.getElementById("cookie-banner");
+    if (banner) banner.style.display = "block";
   } else if (consent === "accepted") {
     if (typeof enableGTM === "function") enableGTM();
   }
@@ -69,78 +72,78 @@ window.onload = () => {
 // ========================
 // 🌗 Mode Switcher
 // ========================
-toggle.addEventListener("change", () => {
-  document.body.style.background = toggle.checked ? "var(--bg-light)" : "var(--bg-dark)";
-  document.body.style.color = toggle.checked ? "var(--text-light)" : "var(--text-dark)";
-});
+if (toggle) {
+  toggle.addEventListener("change", () => {
+    document.body.style.background = toggle.checked ? "var(--bg-light)" : "var(--bg-dark)";
+    document.body.style.color      = toggle.checked ? "var(--text-light)" : "var(--text-dark)";
+  });
+}
 
 // ========================
 // 🌐 Language Switcher
 // ========================
-langSwitcher.addEventListener("change", () => {
-  const lang = langSwitcher.value;
-  localStorage.setItem("selectedLang", lang);
-  updateFAQ(lang);
-  updateUITexts(lang);
-
-  if (typeof gtag !== "undefined") {
-    gtag('event', 'language_switch', {
-      event_category: 'chatbot',
-      event_label: lang
-    });
-  }
-});
+if (langSwitcher) {
+  langSwitcher.addEventListener("change", () => {
+    const lang = langSwitcher.value;
+    localStorage.setItem("selectedLang", lang);
+    updateFAQ(lang);
+    updateUITexts(lang);
+    if (typeof gtag !== "undefined") {
+      gtag('event', 'language_switch', { event_category: 'chatbot', event_label: lang });
+    }
+  });
+}
 
 // ========================
 // 📩 Form Submit Handler
 // ========================
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const question = input.value.trim();
-  const selectedLang = langSwitcher.value;
+if (form) {
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const question = (input.value || "").trim();
+    const selectedLang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
+    if (!question) return;
 
-  if (!question) return;
+    appendMessage(question, "user");
+    saveToHistory("user", question);
+    input.value = "";
+    typingBubble && (typingBubble.style.display = "block");
 
-  appendMessage(question, "user");
-  saveToHistory("user", question);
-  input.value = "";
-  typingBubble.style.display = "block";
-
-  // Intent detection
-  if (detectIntent(question)) {
-    typingBubble.style.display = "none";
-    return;
-  }
-
-  try {
-    const res = await fetch(`${_baseURL()}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: question, lang: selectedLang })
-    });
-
-    const data = await res.json();
-    typingBubble.style.display = "none";
-
-    const replyRaw = data.answer ?? data.reply;
-    const reply = (typeof replyRaw === "string" ? replyRaw.trim() : "");
-    const fallbackMsg = selectedLang === "de"
-      ? `Ich bin mir nicht sicher. Bitte <a href="https://planville.de/kontakt" target="_blank">📞 kontaktieren Sie unser Team hier</a>.`
-      : `I'm not sure about that. Please <a href="https://planville.de/kontakt" target="_blank">📞 contact our team here</a>.`;
-
-    const finalReply = reply && reply !== "" ? reply : fallbackMsg;
-    appendMessage(finalReply, "bot");
-    saveToHistory("bot", finalReply);
-
-    if (typeof trackChatEvent === "function") {
-      trackChatEvent(question, selectedLang);
+    // If intent handled locally (FAQ/CTA), stop
+    if (detectIntent(question)) {
+      typingBubble && (typingBubble.style.display = "none");
+      return;
     }
-  } catch (err) {
-    typingBubble.style.display = "none";
-    appendMessage("Error while connecting to GPT API.", "bot");
-  }
-});
 
+    try {
+      const res = await fetch(`${_baseURL()}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: question, lang: selectedLang })
+      });
+
+      const data = await res.json();
+      typingBubble && (typingBubble.style.display = "none");
+
+      const replyRaw = data.answer ?? data.reply;
+      const reply = (typeof replyRaw === "string" ? replyRaw.trim() : "");
+      const fallbackMsg = selectedLang === "de"
+        ? `Ich bin mir nicht sicher. Bitte <a href="https://planville.de/kontakt" target="_blank" rel="noopener">📞 kontaktieren Sie unser Team hier</a>.`
+        : `I'm not sure about that. Please <a href="https://planville.de/kontakt" target="_blank" rel="noopener">📞 contact our team here</a>.`;
+
+      const finalReply = reply || fallbackMsg;
+      appendMessage(finalReply, "bot");
+      saveToHistory("bot", finalReply);
+
+      if (typeof trackChatEvent === "function") {
+        trackChatEvent(question, selectedLang);
+      }
+    } catch (err) {
+      typingBubble && (typingBubble.style.display = "none");
+      appendMessage("Error while connecting to the API.", "bot");
+    }
+  });
+}
 
 // ========================
 // 💬 Append Message
@@ -159,11 +162,12 @@ function appendMessage(msg, sender, scroll = true) {
     `;
     msgDiv.appendChild(feedback);
 
-    if (msg.length > 100) {
-      const lang = langSwitcher.value;
+    if ((msg || "").length > 100) {
+      const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
       const cta = document.createElement("a");
       cta.href = "https://planville.de/kontakt/";
       cta.target = "_blank";
+      cta.rel = "noopener";
       cta.className = "cta-button";
       cta.innerText = lang === "de" ? "Jetzt Beratung buchen 👉" : "Book a consultation 👉";
       msgDiv.appendChild(cta);
@@ -175,7 +179,7 @@ function appendMessage(msg, sender, scroll = true) {
 }
 
 // ========================
-// 🧠 Save Chat to localStorage
+// 🧠 Save Chat
 // ========================
 function saveToHistory(sender, message) {
   chatHistory.push({ sender, message });
@@ -190,7 +194,7 @@ function resetChat() {
   chatHistory = [];
   chatLog.innerHTML = "";
   const productBlock = document.getElementById("product-options-block");
-if (productBlock) productBlock.remove();
+  if (productBlock) productBlock.remove();
 }
 
 // ========================
@@ -198,9 +202,9 @@ if (productBlock) productBlock.remove();
 // ========================
 function updateFAQ(lang) {
   const faqList = document.getElementById("faq-list");
+  if (!faqList) return;
   faqList.innerHTML = "";
-
-  faqTexts[lang].forEach((text) => {
+  (faqTexts[lang] || []).forEach((text) => {
     const li = document.createElement("li");
     li.innerText = text;
     li.onclick = () => sendFAQ(text);
@@ -208,16 +212,10 @@ function updateFAQ(lang) {
   });
 }
 
-// ========================
-// 📤 FAQ Click → Input
-// ========================
 function sendFAQ(text) {
   input.value = text;
   form.dispatchEvent(new Event("submit"));
-
-  if (typeof trackFAQClick === "function") {
-    trackFAQClick(text);
-  }
+  if (typeof trackFAQClick === "function") trackFAQClick(text);
 }
 
 // ========================
@@ -225,12 +223,8 @@ function sendFAQ(text) {
 // ========================
 function feedbackClick(type) {
   alert(type === "up" ? "Thanks for your feedback! 👍" : "We'll improve. 👎");
-
   if (typeof gtag !== "undefined") {
-    gtag('event', 'chat_feedback', {
-      event_category: 'chatbot',
-      event_label: type,
-    });
+    gtag('event', 'chat_feedback', { event_category: 'chatbot', event_label: type });
   }
 }
 
@@ -238,25 +232,22 @@ function feedbackClick(type) {
 // 🌐 Update Header & Greeting
 // ========================
 function updateUITexts(lang) {
-  document.querySelector('.chatbot-header h1').innerText =
-    lang === "de" ? "Chatte mit Planville AI 🤖" : "Chat with Planville AI 🤖";
-
+  const h = document.querySelector('.chatbot-header h1');
+  if (h) h.innerText = (lang === "de" ? "Chatte mit Planville AI 🤖" : "Chat with Planville AI 🤖");
   resetChat();
 
   const greeting = lang === "de"
     ? "Hallo! 👋 Was kann ich für Sie tun?<br>Bitte wählen Sie ein Thema:"
     : "Hello! 👋 What can I do for you?<br>Please choose a topic:";
-
   appendMessage(greeting, "bot");
-  
-  showProductOptions(); // 
+  showProductOptions();
 }
 
 // ========================
 // 🔘 Show Product Bubble
 // ========================
 function showProductOptions() {
-  const lang = langSwitcher.value;
+  const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
   const keys = ["pv", "aircon", "heatpump", "tenant", "roof"];
 
   const existing = document.getElementById("product-options-block");
@@ -270,7 +261,7 @@ function showProductOptions() {
     const button = document.createElement("button");
     button.innerText = productLabels[key][lang];
     button.className = "product-button";
-    button.dataset.key = key; // ✅ gunakan key
+    button.dataset.key = key;
     button.onclick = () => handleProductSelection(key);
     container.appendChild(button);
   });
@@ -279,14 +270,12 @@ function showProductOptions() {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-
 // ========================
 // 🧩 Product Click
 // ========================
 function handleProductSelection(key) {
-  const lang = langSwitcher.value;
+  const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
   const label = productLabels[key][lang];
-
   appendMessage(label, "user");
 
   if (typeof gtag !== "undefined") {
@@ -302,48 +291,41 @@ function handleProductSelection(key) {
       ? `Was möchten Sie genau zu <b>${label}</b> wissen oder erreichen?`
       : `What exactly would you like to know or achieve about <b>${label}</b>?`;
     appendMessage(followUp, "bot");
-  }, 500);
+  }, 400);
 }
 
 // ========================
-// 🎯 Intent Detection
+// 🎯 Intent Detection (simple)
 // ========================
 function detectIntent(text) {
-  const lower = text.toLowerCase();
+  const lower = (text || "").toLowerCase();
 
-  // Intent: Harga
-  if (lower.includes("harga") || lower.includes("kosten") || lower.includes("cost")) {
-    const lang = langSwitcher.value;
+  // Intent: price
+  if (lower.includes("harga") || lower.includes("kosten") || lower.includes("cost") || lower.includes("price")) {
+    const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
     const msg = lang === "de"
       ? "Die Preise für Photovoltaik beginnen bei etwa 7.000€ bis 15.000€, abhängig von Größe & Standort. Für ein genaues Angebot:"
       : "Prices for photovoltaics typically range from €7,000 to €15,000 depending on size & location. For an exact quote:";
-
     appendMessage(msg, "bot");
 
     const cta = document.createElement("a");
     cta.href = "https://planville.de/kontakt/";
     cta.target = "_blank";
+    cta.rel = "noopener";
     cta.className = "cta-button";
-    cta.innerText = lang === "de" ? "Jetzt Preis anfragen 👉" : "Request Price 👉";
+    cta.innerText = (lang === "de" ? "Jetzt Preis anfragen 👉" : "Request Price 👉");
     chatLog.appendChild(cta);
 
     if (typeof gtag !== "undefined") {
-      gtag('event', 'intent_preisinfo', {
-        event_category: 'intent',
-        event_label: text,
-        language: lang
-      });
+      gtag('event', 'intent_preisinfo', { event_category: 'intent', event_label: text, language: lang });
     }
     return true;
   }
 
-  // Intent: Tertarik
+  // Intent: interested
   if (lower.includes("tertarik") || lower.includes("interested")) {
-    const lang = langSwitcher.value;
-    const msg = lang === "de"
-      ? "Super! Bitte füllen Sie dieses kurze Formular aus:"
-      : "Great! Please fill out this short form:";
-
+    const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
+    const msg = lang === "de" ? "Super! Bitte füllen Sie dieses kurze Formular aus:" : "Great! Please fill out this short form:";
     appendMessage(msg, "bot");
     injectLeadMiniForm();
     return true;
@@ -353,13 +335,12 @@ function detectIntent(text) {
 }
 
 // ========================
-// 🧾 Form Mini Wizard
+// 🧾 Mini Lead Form
 // ========================
 function injectLeadMiniForm() {
-  const lang = langSwitcher.value;
+  const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
   const container = document.createElement("div");
   container.className = "chatbot-message bot-message";
-
   container.innerHTML = `
     <form id="lead-mini-form">
       <label>👤 ${lang === "de" ? "Name" : "Name"}:</label><br>
@@ -371,15 +352,13 @@ function injectLeadMiniForm() {
       </button>
     </form>
   `;
-
   chatLog.appendChild(container);
 
   document.getElementById("lead-mini-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const name = document.getElementById("leadName").value;
-    const email = document.getElementById("leadEmail").value;
+    const name  = document.getElementById("leadName").value.trim();
+    const email = document.getElementById("leadEmail").value.trim();
 
-    // ✅ Validasi Email Sederhana
     if (!email.includes("@") || !email.includes(".")) {
       alert(lang === "de" ? "Bitte geben Sie eine gültige E-Mail-Adresse ein." : "Please enter a valid email address.");
       return;
@@ -393,24 +372,16 @@ function injectLeadMiniForm() {
     );
 
     if (typeof gtag !== "undefined") {
-      gtag('event', 'mini_form_submit', {
-        event_category: 'leadform',
-        event_label: email
-      });
+      gtag('event', 'mini_form_submit', { event_category: 'leadform', event_label: email });
     }
   });
 }
 
 // ========================
-// 🚦 Conversational Funnel Engine (Multi-Produkt)
+// 🚦 Conversational Funnel (Multi-Product)
 // ========================
 const Funnel = {
-  state: {
-    product: null,
-    step: 0,
-    data: {},
-    progressMax: 8
-  },
+  state: { product: null, step: 0, data: {}, progressMax: 8 },
   reset() { this.state = { product: null, step: 0, data: {}, progressMax: 8 }; },
   progress(percent) {
     let bar = document.getElementById('funnel-progress-bar');
@@ -433,7 +404,8 @@ function startFunnel(productKey) {
   track('funnel.start', {product: productKey});
   Funnel.reset();
   Funnel.state.product = productKey;
-  appendMessage(productLabels[productKey][langSwitcher.value], 'user');
+  const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
+  appendMessage(productLabels[productKey][lang], 'user');
   askNext();
 }
 
@@ -459,21 +431,19 @@ function askQuick(text, options, fieldKey) {
 
 function askInput(text, fieldKey, validator) {
   appendMessage(text, 'bot');
-  const input = document.createElement('input');
-  input.className = 'text-input';
-  input.placeholder = 'Antwort eingeben...';
+  const inp = document.createElement('input');
+  inp.className = 'text-input';
+  inp.placeholder = 'Antwort eingeben...';
   const btn = document.createElement('button');
   btn.className = 'quick-btn';
   btn.innerText = 'Weiter';
   const wrap = document.createElement('div');
   wrap.className = 'quick-group';
-  wrap.appendChild(input); wrap.appendChild(btn);
+  wrap.appendChild(inp);
+  wrap.appendChild(btn);
   btn.onclick = () => {
-    const val = input.value.trim();
-    if (validator && !validator(val)) {
-      alert('Bitte gültige Eingabe.');
-      return;
-    }
+    const val = (inp.value || "").trim();
+    if (validator && !validator(val)) { alert('Bitte gültige Eingabe.'); return; }
     appendMessage(val, 'user');
     Funnel.state.data[fieldKey] = val;
     askNext();
@@ -487,20 +457,24 @@ function exitWith(reason) {
   track('lead.exit', {product: Funnel.state.product, reason});
   Funnel.state.data.qualified = false;
   Funnel.state.data.disqualifyReason = reason;
+
   const txt = 'Danke für dein Interesse! Aufgrund deiner Antworten können wir dir leider keine passende Dienstleistung anbieten. Schau aber gerne mal auf unserer Webseite vorbei!';
   const div = document.createElement('div');
   div.className = 'exit-bubble';
   div.innerText = txt;
   chatLog.appendChild(div);
   chatLog.scrollTop = chatLog.scrollHeight;
-  // send disqualified lead (without contact)
+
+  // send disqualified lead (minimal payload)
   try {
     fetch(_baseURL() + '/lead', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
-        leadSource:'chatbot', product: Funnel.state.product,
-        qualified:false, disqualifyReason: reason,
+        leadSource:'chatbot',
+        product: Funnel.state.product,
+        qualified:false,
+        disqualifyReason: reason,
         contact:{ firstName:'-', email:'no@email.invalid' }
       })
     });
@@ -511,33 +485,29 @@ function askNext() {
   const p = Funnel.state.product;
   const s = Funnel.state.step++;
   track('funnel.step', {product: Funnel.state.product, step: Funnel.state.step});
-
-  // progress
   Funnel.progress(((s)/Funnel.state.progressMax)*100);
 
-  // universal checks first if not set yet
-  if (s === 0) {
-    return askQuick(
-      T('owner_q'),
-      [{label:'Ja', value:true},{label:'Nein', value:false}],
-      'owner'
-    );
-  }
-  if (s === 1 && Funnel.state.data.owner === false) {
-    return exitWith('kein_eigentümer');
-  }
-  if (s === 1) {
-    return askQuick(
-      T('occupy_q'),
-      [{label:'Ja', value:true},{label:'Nein', value:false}],
-      'occupant'
-    );
-  }
-  if (s === 2 && Funnel.state.data.occupant === false && p !== 'tenant') {
-    return exitWith('nicht_bewohnt');
-  }
+  // 0: owner
+  if (s === 0) return askQuick(
+    T('owner_q'),
+    [{label:'Ja', value:true},{label:'Nein', value:false}],
+    'owner'
+  );
 
-  // Branching by product
+  // owner check
+  if (s === 1 && Funnel.state.data.owner === false) return exitWith('kein_eigentümer');
+
+  // 1: occupant
+  if (s === 1) return askQuick(
+    T('occupy_q'),
+    [{label:'Ja', value:true},{label:'Nein', value:false}],
+    'occupant'
+  );
+
+  // occupant check (not for tenant)
+  if (s === 2 && Funnel.state.data.occupant === false && p !== 'tenant') return exitWith('nicht_bewohnt');
+
+  // Branching
   if (p === 'pv') {
     if (s === 2) return askQuick('Welcher Gebäudetyp?', [
       {label:'Einfamilienhaus', value:'einfamilienhaus'},
@@ -549,7 +519,7 @@ function askNext() {
       {label:'Doppelhaushälfte', value:'doppelhaus'},
       {label:'Reihenhaus', value:'reihenhaus'}
     ], 'sub_type');
-    if (s === 4) return askInput(T('roof_area'), 'area_sqm', v=>/^[0-9]+(\.[0-9]+)?$/.test(v));
+    if (s === 4) return askInput('Wie groß ist die Dachfläche (m²) ca.?', 'area_sqm', v=>/^[0-9]+(\.[0-9]+)?$/.test(v));
     if (s === 5) {
       const area = parseFloat(Funnel.state.data.area_sqm||0);
       if (area && area < 10) return exitWith('dachfläche_zu_klein');
@@ -582,7 +552,7 @@ function askNext() {
     if (s === 4) return askQuick('Gibt es Probleme?', [
       {label:'Undichtigkeiten', value:'undicht'},
       {label:'Dämmung', value:'daemmung'},
-      {label:'Keine', value:'keine'}
+      {label:'Keine', value:'none'}
     ], 'issues');
     if (s === 5) return askInput('Dachfläche (m²)?', 'area_sqm', v=>/^[0-9]+(\.[0-9]+)?$/.test(v));
     if (s === 6) return askQuick('Zusatzoptionen?', [
@@ -632,11 +602,11 @@ function askNext() {
     ], 'interest');
     if (s === 6) return askContact();
   }
-
-  // default end
-  return;
 }
 
+// ------------------------
+// 📇 Contact + CRM submit
+// ------------------------
 function askContact() {
   // timeline
   askQuick(T('timeline_q'), [
@@ -645,23 +615,28 @@ function askContact() {
     {label:'6–12 Monate', value:'6-12'}
   ], 'timeline');
 
-  // then contact form inline
+  // form
   setTimeout(() => {
     appendMessage(T('contact_q'), 'bot');
     const wrap = document.createElement('div'); wrap.className='quick-group';
-    const name = document.createElement('input'); name.placeholder='Name';
+    const name  = document.createElement('input'); name.placeholder='Name';
     const email = document.createElement('input'); email.placeholder='E-Mail';
     const phone = document.createElement('input'); phone.placeholder='Telefon';
-    const btn = document.createElement('button'); btn.className='quick-btn'; btn.innerText='Absenden';
-    wrap.append(name,email,phone,btn);
+    const btn   = document.createElement('button'); btn.className='quick-btn'; btn.innerText='Absenden';
+    wrap.appendChild(name); wrap.appendChild(email); wrap.appendChild(phone); wrap.appendChild(btn);
+
     btn.onclick = async () => {
-      appendMessage(`${name.value} • ${email.value} • ${phone.value}`,'user');
-      // assemble payload & POST
+      appendMessage(`${name.value} • ${email.value} • ${phone.value}`, 'user');
       const payload = {
         leadSource:'chatbot',
         product: Funnel.state.product,
         qualified:true,
-        contact:{ firstName: name.value?.split(' ')[0] || name.value, lastName: name.value?.split(' ').slice(1).join(' ') || '', email: email.value, phone: phone.value },
+        contact:{
+          firstName: (name.value || "").split(' ')[0] || (name.value || ""),
+          lastName:  (name.value || "").split(' ').slice(1).join(' ') || "",
+          email: email.value || "",
+          phone: phone.value || ""
+        },
         property:{
           type: Funnel.state.data.prop_type || null,
           subType: Funnel.state.data.sub_type || null,
@@ -678,20 +653,26 @@ function askContact() {
         addons: Array.isArray(Funnel.state.data.addons) ? Funnel.state.data.addons : [Funnel.state.data.addons].filter(Boolean),
         consent:{ accepted: true, timestamp: new Date().toISOString(), version: 'v1.0' }
       };
+
       try {
-        const res = await fetch(_baseURL() + '/lead', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-        const out = await res.json().catch(()=>({}));
-        appendMessage(langSwitcher.value==='de' ? 'Danke! Unser Team meldet sich zeitnah. Möchtest du direkt einen Termin wählen?' : 'Thanks! Our team will contact you soon. Would you like to pick a time now?', 'bot');
-      track('lead.created', {product: Funnel.state.product});
-      try{
-        if (typeof CONFIG !== 'undefined' && CONFIG.CALENDAR_URL){
-          const cta = document.createElement('div');
-          cta.className='quick-group';
-          const btn = document.createElement('button');
-          btn.className='quick-btn';
-          btn.innerText = 'Termin buchen';
+        const res = await fetch(_baseURL() + '/lead', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        await res.json().catch(()=> ({}));
+        appendMessage(langSwitcher.value==='de'
+          ? 'Danke! Unser Team meldet sich zeitnah. Möchtest du direkt einen Termin wählen?'
+          : 'Thanks! Our team will contact you soon. Would you like to pick a time now?', 'bot');
+        track('lead.created', {product: Funnel.state.product});
+
+        // CTA Kalender (optional)
+        if (CONFIG.CALENDAR_URL) {
+          const ctaWrap = document.createElement('div'); ctaWrap.className='quick-group';
+          const btn = document.createElement('button'); btn.className='quick-btn'; btn.innerText='Termin buchen';
           btn.onclick = () => {
             track('calendar.cta_click', {product: Funnel.state.product});
+            // Inline modal
             const modal = document.createElement('div');
             modal.style.position='fixed'; modal.style.inset='0'; modal.style.background='rgba(0,0,0,0.5)';
             modal.onclick = e => { if (e.target === modal) document.body.removeChild(modal); };
@@ -702,44 +683,27 @@ function askContact() {
             frame.style.border='0';
             frame.style.background='#fff';
             const box = document.createElement('div');
-            box.style.position='absolute'; box.style.top='50%'; box.style.left='50%'; box.style.transform='translate(-50%,-50%)';
-            box.style.borderRadius='12px'; box.style.overflow='hidden'; box.appendChild(frame);
+            box.style.position='absolute'; box.style.top='50%'; box.style.left='50%';
+            box.style.transform='translate(-50%,-50%)'; box.style.borderRadius='12px';
+            box.style.overflow='hidden'; box.appendChild(frame);
             modal.appendChild(box); document.body.appendChild(modal);
           };
-          cta.appendChild(btn); chatLog.appendChild(cta);
+          ctaWrap.appendChild(btn); chatLog.appendChild(ctaWrap);
         }
-      } catch(e){}
-
-      track('lead.created', {product: Funnel.state.product});
-      try{
-        if (typeof CONFIG !== 'undefined' && CONFIG.CALENDAR_URL){
-          const cta = document.createElement('div');
-          cta.className='quick-group';
-          const btn = document.createElement('button'); btn.className='quick-btn'; btn.innerText='Termin buchen';
-          btn.onclick = ()=>{ track('calendar.cta_click', {product: Funnel.state.product}); window.open(CONFIG.CALENDAR_URL, '_blank'); };
-          cta.appendChild(btn);
-          // optional inline embed
-          const iframe = document.createElement('iframe'); iframe.style.width='100%'; iframe.style.height='620px'; iframe.style.border='0'; iframe.loading='lazy'; iframe.referrerPolicy='no-referrer-when-downgrade'; iframe.src = CONFIG.CALENDAR_URL;
-          chatLog.appendChild(cta);
-          chatLog.appendChild(iframe);
-        }
-      }catch(e){}
       } catch(e) {
         appendMessage('Es gab ein Problem beim Speichern des Leads. Bitte versuche es später erneut.', 'bot');
       }
       wrap.remove();
     };
+
     chatLog.appendChild(wrap);
     chatLog.scrollTop = chatLog.scrollHeight;
   }, 400);
 }
 
-// Hook: override product selection to start funnel
-const _oldHandleProductSelection = typeof handleProductSelection === 'function' ? handleProductSelection : null;
-handleProductSelection = function(key) {
-  startFunnel(key);
-};
-
+// Override product click → start funnel
+const _oldHandleProductSelection = (typeof handleProductSelection === 'function') ? handleProductSelection : null;
+handleProductSelection = function(k){ startFunnel(k); };
 
 // ========================
 // 🧪 A/B Variant + Tracking
@@ -761,15 +725,15 @@ function track(eventName, props={}){
   } catch(e){}
 }
 
-// Text variants
+// Text variants (fixed: no recursion)
 function T(key){
   const v = AB.variant;
   const dict = {
-    owner_q: { A: 'Bist du Eigentümer:in der Immobilie?', B: 'Bist du Eigentümer/in der Immobilie?' },
-    occupy_q:{ A: 'Bewohnst du die Immobilie selbst?', B: 'Wohnst du selbst in der Immobilie?' },
-    roof_area:{ A: T('roof_area'), B: 'Wie groß ist die Dachfläche (m²) ca.?' },
-    timeline_q:{ A: T('timeline_q'), B: 'Wann planst du die Umsetzung?' },
-    contact_q:{ A: 'Super! Wie ist dein Name, E-Mail und Telefonnummer?', B: 'Top – nenn mir bitte Name, E‑Mail und Telefon.' }
+    owner_q:   { A: 'Bist du Eigentümer:in der Immobilie?', B: 'Bist du Eigentümer/in der Immobilie?' },
+    occupy_q:  { A: 'Bewohnst du die Immobilie selbst?',     B: 'Wohnst du selbst in der Immobilie?'  },
+    roof_area: { A: 'Wie groß ist die Dachfläche (m²) ca.?', B: 'Wie groß ist die Dachfläche (m²) ca.?' },
+    timeline_q:{ A: 'Wann planst du die Umsetzung?',         B: 'Wann möchtest du das Projekt starten?' },
+    contact_q: { A: 'Super! Wie ist dein Name, E‑Mail und Telefonnummer?', B: 'Top – nenn mir bitte Name, E‑Mail und Telefon.' }
   };
   return (dict[key] && dict[key][v]) || key;
 }
