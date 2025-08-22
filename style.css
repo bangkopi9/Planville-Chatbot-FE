@@ -1,32 +1,32 @@
-/* === FINAL STYLE - PLANVILLE AI CHATBOT (Dark + Light + Logo + FAQ Switch + Bubble + Responsive) === */
+/* === PLANVILLE AI CHATBOT — FINAL CSS (Dark/Light, No Robot/Ticker, Better Contrast) === */
 
+/* THEME TOKENS */
 :root {
-  /* Dark Theme */ 
+  /* Dark Theme */
   --bg-dark: #18201B;
   --text-dark: #FFFFFF;
-  --bubble-user: #2E8354;
-  --bubble-bot: #E8E8E8;
-  --accent: #FFA100;
+  --bubble-user: #2E8354;       /* hijau brand */
+  --bubble-bot: #E8E8E8;        /* abu terang untuk bot */
+  --accent: #FFA100;            /* kuning brand (buttons) */
   --border-dark: #203528;
 
   /* Light Theme */
   --bg-light: #f8f9fa;
   --text-light: #212529;
   --bubble-user-light: #d1e7dd;
-  --bubble-bot-light: #F5F7F9; /* FIX: was #030404 (too dark) */
+  --bubble-bot-light: #f1f5f9;  /* abu terang tapi tidak gelap */
   --border-light: #ced4da;
 
-  /* Robot brand */
-  --robot-primary: #0EA05A;  /* dark green */
-  --robot-accent:  #C2410C;  /* dark orange */
-  --robot-face:    #E8EEF7;  /* soft panel */
-  --robot-stroke:  #1D2733;  /* deep slate */
-
-  /* Focus ring */
-  --focus: #84d8ff;
+  /* Misc */
+  --focus: #22c55e;
 }
 
+/* GLOBAL */
 * { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+}
 
 body {
   margin: 0;
@@ -36,23 +36,16 @@ body {
   color: var(--text-dark);
   display: flex;
   min-height: 100vh;
-  background-image: url("logo-watermark.png");
-  background-repeat: no-repeat;
-  background-position: center left;
-  background-size: 180px;
   transition: background 0.3s, color 0.3s;
 }
 
-/* Optional: hide chat area until start (JS can add .chat-started to body) */
-body:not(.chat-started) .chatbot-container { display: none; }
-
-body.light-mode {
-  background-color: var(--bg-light);
-  color: var(--text-light);
-  background-image: url("logo-watermark-light.png");
+/* Matikan watermark robot/ticker lama biar bersih */
+.pv-hero,
+.pv-ticker {
+  display: none !important;
 }
 
-/* Sidebar */
+/* SIDEBAR FAQ */
 .faq-sidebar {
   width: 280px;
   background-color: #18201B;
@@ -64,25 +57,25 @@ body.light-mode .faq-sidebar {
   border-right: 1px solid var(--border-light);
 }
 .faq-sidebar h2 {
-  margin-top: 0;
+  margin: 0 0 12px 0;
   font-size: 18px;
   color: #FFFFFF;
 }
-body.light-mode .faq-sidebar h2 { color: #0f172a; }
 .faq-sidebar ul {
-  list-style-type: none;
-  padding: 0;
+  list-style: none;
   margin: 0;
+  padding: 0;
 }
 .faq-sidebar li {
-  padding: 0.5rem 0;
+  padding: 10px 4px;
   color: #FFFFFF;
   cursor: pointer;
   border-bottom: 1px dashed #33475b;
   transition: background 0.2s ease, padding-left .2s ease;
+  user-select: none;
 }
 .faq-sidebar li:hover {
-  background-color: #18201B;
+  background-color: #1d2a22;
   padding-left: 8px;
 }
 body.light-mode .faq-sidebar li {
@@ -93,24 +86,21 @@ body.light-mode .faq-sidebar li:hover {
   background-color: #dde9f2;
 }
 
-/* Hide sidebar on mobile */
+/* Responsive: hide sidebar on mobile */
 @media (max-width: 768px) {
   .faq-sidebar { display: none; }
-
-  .chatbot-container {
-    width: 100%;
-    padding: 1rem;
-  }
 }
 
-/* Chatbot Container */
+/* CHAT CONTAINER */
 .chatbot-container {
-  flex-grow: 1;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   padding: 2rem;
+  min-width: 0; /* prevent overflow */
 }
 
+/* HEADER */
 .chatbot-header {
   display: flex;
   align-items: center;
@@ -120,7 +110,7 @@ body.light-mode .faq-sidebar li:hover {
 }
 .chatbot-logo {
   height: 32px;
-  margin-right: 10px;
+  width: auto;
 }
 .chatbot-header h1 {
   flex-grow: 1;
@@ -129,12 +119,13 @@ body.light-mode .faq-sidebar li:hover {
   line-height: 1.2;
 }
 
-/* Dark/Light Toggle Switch */
+/* DARK/LIGHT SWITCH */
 .switch {
   position: relative;
   display: inline-block;
   width: 50px;
   height: 26px;
+  flex: 0 0 auto;
 }
 .switch input {
   opacity: 0;
@@ -143,7 +134,7 @@ body.light-mode .faq-sidebar li:hover {
 }
 .slider {
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
+  inset: 0;
   background-color: #555;
   border-radius: 34px;
   transition: 0.3s;
@@ -156,21 +147,17 @@ body.light-mode .faq-sidebar li:hover {
   border-radius: 50%;
   transition: 0.3s;
 }
-input:checked + .slider {
-  background-color: #28a745;
-}
-input:checked + .slider:before {
-  transform: translateX(24px);
-}
+input:checked + .slider { background-color: #28a745; }
+input:checked + .slider:before { transform: translateX(24px); }
 
-/* Chat Area */
+/* CHAT LOG AREA */
 #chatbot-log {
   flex: 1;
   overflow-y: auto;
   padding: 1rem;
   margin: 1rem 0;
   border: 1px solid var(--border-dark);
-  border-radius: 8px;
+  border-radius: 12px;
   background-color: #203528;
   scroll-behavior: smooth;
 }
@@ -179,47 +166,49 @@ body.light-mode #chatbot-log {
   border: 1px solid var(--border-light);
 }
 
+/* MESSAGES */
 .chatbot-message {
-  padding: 10px 15px;
-  margin: 8px 0;
+  padding: 12px 16px;
+  margin: 10px 0;
   border-radius: 16px;
   max-width: 90%;
-  line-height: 1.5;
+  line-height: 1.55;
   word-wrap: break-word;
   animation: fadeIn 0.2s ease-in-out;
   transition: all 0.3s ease;
 }
+
+/* User bubble — selalu teks hitam biar kebaca di hijau */
 .user-message {
   background-color: var(--bubble-user);
-  color: #000; /* 🔒 FORCE: teks item (hitam) di bubble hijau */
+  color: #000; /* penting: teks hitam di bubble hijau */
   align-self: flex-end;
   text-align: right;
-  border-bottom-right-radius: 2px;
+  border-bottom-right-radius: 6px;
 }
+
+/* Bot bubble — terang + teks gelap untuk kontras maksimal */
 .bot-message {
   background-color: var(--bubble-bot);
+  color: #111;
   align-self: flex-start;
-  border-bottom-left-radius: 2px;
-  color: #18201B;
+  border-bottom-left-radius: 6px;
 }
 body.light-mode .user-message {
   background-color: var(--bubble-user-light);
-  color: #0b2318; /* better contrast di light */
+  color: #111;
 }
 body.light-mode .bot-message {
-  background-color: var(--bubble-bot-light); /* FIX: light bubble */
-  color: #0f172a;
+  background-color: var(--bubble-bot-light);
+  color: #111; /* jaga kontras */
 }
 
 /* Typing bubble */
 .typing-bubble {
   font-style: italic;
-  color: #cbd5e1;
+  color: #e0e0e0;
 }
-.typing-bubble::after {
-  content: "";
-  animation: typing 1s steps(3) infinite;
-}
+.typing-bubble::after { content: ""; animation: typing 1s steps(3) infinite; }
 @keyframes typing {
   0% { content: "."; }
   33% { content: ".."; }
@@ -227,70 +216,68 @@ body.light-mode .bot-message {
   100% { content: ""; }
 }
 
-/* Form */
+/* INPUT FORM */
 form {
   display: flex;
-  gap: 8px;
-  align-items: center;
+  gap: .5rem;
   margin-top: auto;
   border-top: 1px solid #2b3b4c;
-  padding-top: 0.75rem;
+  padding-top: 1rem;
 }
-input[type="text"]#chatbot-input {
-  flex: 1;
-  height: 42px;                 /* ⚖️ lebih kecil */
-  padding: 0 12px;
+input[type="text"],
+#chatbot-input {
+  flex: 1 1 auto;
+  padding: 0.9rem 1rem;
   border-radius: 10px;
-  border: 1px solid #3c4a44;
-  background-color: #FFFFFF;
-  color: #000000;
-  font-size: 0.95rem;
+  border: 1px solid #3a4a3f;
+  background-color: #FFFFFF;  /* putih */
+  color: #000000;             /* teks hitam supaya selalu kebaca */
+  font-size: 1rem;
 }
-input[type="text"]#chatbot-input::placeholder { color: #6b7280; }
-input[type="text"]#chatbot-input:focus {
+input[type="text"]:focus,
+#chatbot-input:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px rgba(34,197,94,.18);
 }
 button[type="submit"] {
-  height: 42px;                 /* match input */
-  min-width: 44px;
-  padding: 0 14px;
+  flex: 0 0 auto;
   background-color: var(--accent);
   border: none;
-  color: #000;
+  color: #000;           /* penting: teks hitam di tombol kuning */
+  padding: 0 1rem;
   border-radius: 10px;
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 1.1rem;
   font-weight: 700;
 }
-button[type="submit"]:hover { opacity: 0.9; }
-button[type="submit"]:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
-}
+button:hover { opacity: 0.92; }
 
-/* (Optional) hide form before start if body lacks .chat-started */
-body:not(.chat-started) form { visibility: hidden; }
-
-/* Language Switcher */
+/* LANGUAGE SWITCHER — posisi di bawah input */
 .language-switcher {
-  margin-top: 1rem;
-  text-align: right;
+  margin-top: 1.5rem;      /* kasih jarak lebih lega */
+  text-align: center;      /* center biar rapi */
+}
+.language-switcher label {
+  margin-right: 6px;
+  font-weight: 500;
+  color: inherit;
 }
 .language-switcher select {
-  padding: 0.4rem 0.6rem;
+  padding: 0.55rem 0.85rem;
   border-radius: 8px;
-  border: 1px solid #94a3b8;
+  font-size: 1rem;
+  border: 1px solid var(--border-dark);
   background: #fff;
-  font-size: 0.95rem;
+  color: #000;
 }
-.language-switcher select:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
+body.light-mode .language-switcher select {
+  border: 1px solid var(--border-light);
+  background: #f8f9fa;
+  color: #212529;
 }
 
-/* Feedback Buttons */
+/* FEEDBACK BUTTONS */
 .feedback-btns {
   margin-top: 8px;
   text-align: right;
@@ -301,15 +288,12 @@ body:not(.chat-started) form { visibility: hidden; }
   border: none;
   font-size: 1.2rem;
   cursor: pointer;
-  transition: transform 0.2s, filter .2s;
+  transition: transform 0.2s;
+  color: inherit;
 }
-.feedback-btns button:hover { transform: scale(1.2); filter: saturate(1.4); }
-.feedback-btns button:focus-visible {
-  outline: 3px solid var(--focus);
-  border-radius: 6px;
-}
+.feedback-btns button:hover { transform: scale(1.2); }
 
-/* Cookie Consent Banner */
+/* COOKIE BANNER */
 .cookie-popup {
   position: fixed;
   bottom: 0; left: 0; right: 0;
@@ -323,28 +307,24 @@ body:not(.chat-started) form { visibility: hidden; }
   gap: 12px;
 }
 .cookie-popup p { margin: 0; }
-.cookie-buttons { display: flex; gap: 10px; }
 .cookie-buttons button {
+  margin-left: 10px;
   background-color: var(--accent);
-  color: #000;
-  padding: 6px 12px;
+  color: #000;                    /* teks tombol kuning: hitam */
+  padding: 8px 12px;
   border: none;
   border-radius: 8px;
   cursor: pointer;
   font-weight: 700;
 }
-.cookie-buttons button:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
-}
 
-/* Animation */
+/* ANIMATIONS */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: translateY(0);   }
 }
 
-/* Product Options as Bubble List */
+/* PRODUCT OPTIONS (as bubble list) */
 .product-options {
   display: flex;
   flex-direction: column;
@@ -353,142 +333,112 @@ body:not(.chat-started) form { visibility: hidden; }
 }
 .product-button {
   background-color: var(--accent);
-  padding: 1rem 1.5rem;
+  padding: 1rem 1.25rem;
   border: none;
   border-radius: 24px;
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: 700;
-  color: #000 !important; /* 🔒 teks hitam di kuning */
+  color: #000;                       /* penting: teks hitam di tombol kuning */
   cursor: pointer;
-  transition: transform 0.2s, background 0.3s, box-shadow .2s;
   text-align: left;
+  transition: transform 0.2s, background 0.25s, box-shadow .25s;
 }
 .product-button:hover {
-  background-color: #ffcd39; /* konsisten sama CTA */
-  transform: translateX(5px);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-}
-.product-button:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
+  background-color: #ffcd39;
+  transform: translateX(4px);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.22);
 }
 body.light-mode .product-button {
-  background-color: #ffe08a; /* lebih soft di light */
-  color: #000 !important;
+  background-color: var(--accent);
+  color: #000;
 }
-body.light-mode .product-button:hover { background-color: #ffd24d; }
+body.light-mode .product-button:hover {
+  background-color: #ffcd39;
+}
 
-/* CTA Button Below Bot Message */
+/* CTA BUTTON di bawah pesan bot */
 .cta-button {
   display: inline-block;
   margin-top: 12px;
   background-color: #ffc107;
-  color: #000 !important; /* 🔒 kontras */
+  color: #000;                 /* penting: teks hitam */
   padding: 10px 18px;
   border-radius: 24px;
   font-weight: 800;
   font-size: 1rem;
   text-decoration: none;
-  transition: background 0.3s ease, box-shadow .2s;
+  transition: background 0.25s ease, transform .15s ease;
 }
 .cta-button:hover {
   background-color: #ffcd39;
-  box-shadow: 0 6px 14px rgba(0,0,0,.18);
-}
-.cta-button:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 3px;
+  transform: translateY(-1px);
 }
 
-/* ===== Planville add-on (scoped, non-breaking) ===== */
-.pv-hero{
-  position:relative;display:flex;align-items:center;gap:12px;
-  padding:10px 12px;border-radius:12px;
-  background:rgba(255,255,255,0.6);
-  -webkit-backdrop-filter:saturate(1.1) blur(2px);
-  backdrop-filter:saturate(1.1) blur(2px);
-  margin:8px 8px 0
+/* PROGRESS BAR (funnel) */
+.funnel-progress {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  margin: 8px 8px 12px;
+  overflow: hidden;
 }
-.pv-robot{display:inline-flex;align-items:center;justify-content:center}
-.pv-robot-svg{display:block}
-
-/* 🎨 Robot recolor to green/orange */
-.pv-robot-svg rect,
-.pv-robot-svg circle {
-  fill: var(--robot-primary) !important;
-}
-.pv-robot-svg rect[height="70"] {
-  fill: var(--robot-face) !important;    /* face panel */
-  stroke: var(--robot-stroke);
-  stroke-width: 1.5;
-}
-.pv-robot-svg .pv-hand rect,
-.pv-robot-svg .pv-hand circle {
-  fill: var(--robot-accent) !important;  /* waving hand accent */
-}
-.pv-robot-svg line { stroke: var(--robot-stroke) !important; }
-
-/* wave anim */
-.pv-hand{transform-origin:0px -2px;animation:pv-wave 1.6s ease-in-out infinite}
-@keyframes pv-wave{
-  0%,100%{transform:translate(130px,55px) rotate(0deg)}
-  12%{transform:translate(130px,55px) rotate(14deg)}
-  24%{transform:translate(130px,55px) rotate(-10deg)}
-  36%{transform:translate(130px,55px) rotate(8deg)}
-  48%{transform:translate(130px,55px) rotate(-6deg)}
-  60%{transform:translate(130px,55px) rotate(0deg)}
+.funnel-progress__bar {
+  height: 100%;
+  width: 0;
+  background: #10b981;
+  transition: width .35s ease;
 }
 
-/* Balloon & Ticker */
-.pv-balloon{
-  position:relative;max-width:520px;padding:10px 12px;border-radius:12px;
-  background:#fff;color:#1d2733;font-size:14px;line-height:1.35;
-  box-shadow:0 6px 18px rgba(0,0,0,.06)
+/* QUICK REPLIES */
+.quick-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
 }
-.pv-balloon::after{content:"";position:absolute;left:-8px;top:18px;width:0;height:0;border-top:8px solid transparent;border-bottom:8px solid transparent;border-right:8px solid #fff}
-.pv-ticker{position:relative;overflow:hidden;white-space:nowrap;background:#0f172a;color:#e8eef7;font-size:13px;padding:6px 0;margin:6px 0 0}
-.pv-ticker-track{display:inline-flex;gap:40px;padding-left:100%;animation:pv-marquee 18s linear infinite;will-change:transform}
-.pv-ticker:hover .pv-ticker-track{animation-play-state:paused}
-@keyframes pv-marquee{from{transform:translateX(0)}to{transform:translateX(-100%)}}
-@media (max-width:480px){
-  .pv-hero{gap:8px;padding:8px 10px}
-  .pv-balloon{font-size:13px}
-  .pv-robot-svg{width:110px;height:88px}
+.quick-btn {
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #111;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background .2s ease, transform .1s ease;
 }
-@media (prefers-reduced-motion:reduce){
-  .pv-hand,.pv-ticker-track{animation:none!important}
+.quick-btn:hover { background: #f1f5f9; transform: translateY(-1px); }
+
+/* Inline input (askInput) */
+.text-input {
+  flex: 1 1 auto;
+  min-width: 160px;
+  padding: 0.6rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #111;
 }
 
-/* Progress indicator */
-.funnel-progress{
-  height:6px;background:#e5e7eb;border-radius:999px;margin:8px 8px 12px;overflow:hidden
-}
-.funnel-progress__bar{
-  height:100%;width:0;background:#10b981;transition:width .3s ease
-}
-
-/* Quick reply buttons */
-.quick-group{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
-.quick-btn{
-  padding:8px 12px;border-radius:999px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;
-  transition: background .15s ease, box-shadow .15s ease;
-}
-.quick-btn:hover{background:#f1f5f9}
-.quick-btn:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
-
-/* Exit bubble — 🔒 not grey, readable */
-.exit-bubble{
-  background:#fff7ed;
-  color:#111;
-  border-left:4px solid #fb923c;
-  padding:10px 12px;
-  border-radius:8px;
-  margin:8px 0
+/* EXIT BUBBLE (disqualify) — readable & tidak terlalu terang */
+.exit-bubble {
+  background: #fff7ed;
+  color: #111;                 /* teks gelap supaya kebaca */
+  border-left: 4px solid #fb923c;
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin: 10px 0;
 }
 
-/* Small helper classes */
-.is-hidden { display: none !important; }
-.visually-hidden {
-  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+/* LIGHT MODE ROOT */
+body.light-mode {
+  background-color: var(--bg-light);
+  color: var(--text-light);
+}
+
+/* MOBILE TWEAKS */
+@media (max-width: 768px) {
+  .chatbot-container { padding: 1rem; }
+  #chatbot-log { margin: .75rem 0; border-radius: 10px; }
+  .chatbot-message { max-width: 100%; }
+  .product-button { font-size: 1rem; }
 }
