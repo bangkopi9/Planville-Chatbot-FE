@@ -122,7 +122,9 @@ window.addEventListener("load", () => {
   }
 
   // Hide chat area until robot tapped
-  hideChatArea();
+  showChatArea();
+  chatStarted = true;
+  startGreetingFlow();
 
   // Hero click to start chat
   if (pvHero) {
@@ -319,8 +321,23 @@ function resetChat() {
 // ========================
 // 📌 FAQ Updater
 // ========================
-function updateFAQ(lang){ const sb=document.querySelector('.faq-sidebar'); if (sb) sb.style.display='none'; const list=document.getElementById('faq-list'); if (list) list.innerHTML=''; return; });
+function updateFAQ(lang){
+  const list = document.getElementById('faq-list');
+  const sidebar = document.querySelector('.faq-sidebar');
+  if (!list || !sidebar) return;
+  list.innerHTML = '';
+  const items = (faqTexts[lang] || faqTexts['de']) || [];
+  items.forEach(txt => {
+    const li = document.createElement('li');
+    li.innerText = txt;
+    li.addEventListener('click', () => {
+      input.value = txt;
+      form.dispatchEvent(new Event('submit'));
+    });
+    list.appendChild(li);
+  });
 }
+
 function sendFAQ(text) {
   input.value = text;
   form.dispatchEvent(new Event("submit"));
@@ -488,6 +505,7 @@ function startFunnel(productKey) {
 }
 
 function askQuick(text, options, fieldKey) {
+  appendMessage(text, 'bot');
   const group = document.createElement('div');
   group.className = 'quick-group';
 
