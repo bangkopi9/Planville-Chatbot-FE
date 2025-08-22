@@ -700,87 +700,32 @@ function askContact() {
     {label:'6–12 Monate', value:'6-12'}
   ], 'timeline');
 
-  // form
-  setTimeout(() => {
-    appendMessage(T('contact_q'), 'bot');
-    const wrap = document.createElement('div'); wrap.className='quick-group';
-    const name  = document.createElement('input'); name.placeholder='Name';
-    const email = document.createElement('input'); email.placeholder='E-Mail';
-    const phone = document.createElement('input'); phone.placeholder='Telefon';
-    const btn   = document.createElement('button'); btn.className='quick-btn'; btn.innerText='Absenden';
-    wrap.appendChild(name); wrap.appendChild(email); wrap.appendChild(phone); wrap.appendChild(btn);
-
-    btn.onclick = async () => {
-      appendMessage(`${name.value} • ${email.value} • ${phone.value}`, 'user');
-      const payload = {
-        leadSource:'chatbot',
-        product: Funnel.state.product,
-        qualified:true,
-        contact:{
-          firstName: (name.value || "").split(' ')[0] || (name.value || ""),
-          lastName:  (name.value || "").split(' ').slice(1).join(' ') || "",
-          email: email.value || "",
-          phone: phone.value || ""
-        },
-        property:{
-          type: Funnel.state.data.prop_type || null,
-          subType: Funnel.state.data.sub_type || null,
-          area_sqm: parseFloat(Funnel.state.data.area_sqm || 0) || null,
-          roofType: Funnel.state.data.roofType || null,
-          roofOrientation: Funnel.state.data.orientation || null,
-          material: Funnel.state.data.material || null
-        },
-        energy:{
-          consumption_kwh: parseFloat(Funnel.state.data.consumption_kwh || 0) || null,
-          heatingType: Funnel.state.data.heatingType || null
-        },
-        timeline: Funnel.state.data.timeline || null,
-        addons: Array.isArray(Funnel.state.data.addons) ? Funnel.state.data.addons : [Funnel.state.data.addons].filter(Boolean),
-        consent:{ accepted: true, timestamp: new Date().toISOString(), version: 'v1.0' }
-      };
-
-      try {
-        await fetch(_baseURL() + '/lead', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify(payload)
-        }).then(r => r.json()).catch(()=> ({}));
-
-        appendMessage(I18N.askContactDone(langSwitcher.value || "de"), 'bot');
-        track('lead.created', {product: Funnel.state.product});
-
-        // CTA Kalender (optional)
-        if (CONFIG.CALENDAR_URL) {
-          const ctaWrap = document.createElement('div'); ctaWrap.className='quick-group';
-          const btn = document.createElement('button'); btn.className='quick-btn'; btn.innerText='Termin buchen';
-          btn.onclick = () => {
-            track('calendar.cta_click', {product: Funnel.state.product});
-            const modal = document.createElement('div');
-            modal.style.position='fixed'; modal.style.inset='0'; modal.style.background='rgba(0,0,0,0.5)';
-            modal.onclick = e => { if (e.target === modal) document.body.removeChild(modal); };
-            const frame = document.createElement('iframe');
-            frame.src = CONFIG.CALENDAR_URL;
-            frame.style.width='min(900px, 94vw)';
-            frame.style.height='min(700px, 88vh)';
-            frame.style.border='0';
-            frame.style.background='#fff';
-            const box = document.createElement('div');
-            box.style.position='absolute'; box.style.top='50%'; box.style.left='50%';
-            box.style.transform='translate(-50%,-50%)'; box.style.borderRadius='12px';
-            box.style.overflow='hidden'; box.appendChild(frame);
-            modal.appendChild(box); document.body.appendChild(modal);
-          };
-          ctaWrap.appendChild(btn); chatLog.appendChild(ctaWrap);
-        }
-      } catch(e) {
-        appendMessage('Es gab ein Problem beim Speichern des Leads. Bitte versuche es später erneut.', 'bot');
-      }
-      wrap.remove();
+  // form removed by request
+setTimeout(() => {
+  appendMessage(I18N.askContactDone(langSwitcher.value || "de"), 'bot');
+  // optional: show calendar CTA if configured
+  if (CONFIG.CALENDAR_URL) {
+    const ctaWrap = document.createElement('div'); ctaWrap.className='quick-group';
+    const btn = document.createElement('button'); btn.className='quick-btn'; btn.innerText='Termin buchen';
+    btn.onclick = () => {
+      const modal = document.createElement('div');
+      modal.style.position='fixed'; modal.style.inset='0'; modal.style.background='rgba(0,0,0,0.5)';
+      modal.onclick = e => { if (e.target === modal) document.body.removeChild(modal); };
+      const frame = document.createElement('iframe');
+      frame.src = CONFIG.CALENDAR_URL;
+      frame.style.width='min(900px, 94vw)';
+      frame.style.height='min(90vh, 720px)';
+      frame.style.border='0';
+      frame.style.background='#fff';
+      const box = document.createElement('div');
+      box.style.position='absolute';
+      box.style.top='50%'; box.style.left='50%'; box.style.transform='translate(-50%, -50%)';
+      box.style.borderRadius='12px'; box.style.overflow='hidden';
+      box.appendChild(frame); modal.appendChild(box); document.body.appendChild(modal);
     };
-
-    chatLog.appendChild(wrap);
-    chatLog.scrollTop = chatLog.scrollHeight;
-  }, 400);
+    ctaWrap.appendChild(btn); chatLog.appendChild(ctaWrap);
+  }
+}, 400);
 }
 
 // ========================
