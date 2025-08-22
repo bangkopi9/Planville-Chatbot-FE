@@ -7,8 +7,48 @@ function _baseURL() {
     if (!b) return "";
     if (!/^https?:\/\//i.test(b)) b = "https://" + b; // auto add scheme
     return b.endsWith("/") ? b.slice(0, -1) : b;
-  } catch(e) { return ""; }
+  } catch (e) { return ""; }
 }
+
+// i18n strings for UI
+const I18N = {
+  greeting: {
+    de: "Hallo! 👋 Was kann ich für Sie tun?<br>Bitte wählen Sie ein Thema:",
+    en: "Hello! 👋 What can I do for you?<br>Please choose a topic:"
+  },
+  header: {
+    de: "Chatte mit Planville AI 🤖",
+    en: "Chat with Planville AI 🤖"
+  },
+  robotBalloon: {
+    de: "Hi! Ich bin dein Planville Assistent. Wobei darf ich helfen?",
+    en: "Hi! I'm your Planville assistant. How can I help?"
+  },
+  ctaBook: {
+    de: "Jetzt Beratung buchen 👉",
+    en: "Book a consultation 👉"
+  },
+  priceMsg: {
+    de: "Die Preise für Photovoltaik beginnen bei etwa 7.000€ bis 15.000€, abhängig von Größe & Standort. Für ein genaues Angebot:",
+    en: "Prices for photovoltaics typically range from €7,000 to €15,000 depending on size & location. For an exact quote:"
+  },
+  miniFormThanks: (lang, name, email) =>
+    lang === "de"
+      ? `Vielen Dank ${name}! Unser Team wird Sie bald unter ${email} kontaktieren 🙌`
+      : `Thank you ${name}! Our team will contact you soon at ${email} 🙌`,
+  unsure: {
+    de: `Ich bin mir nicht sicher. Bitte <a href="https://planville.de/kontakt" target="_blank" rel="noopener">📞 kontaktieren Sie unser Team hier</a>.`,
+    en: `I'm not sure about that. Please <a href="https://planville.de/kontakt" target="_blank" rel="noopener">📞 contact our team here</a>.`
+  },
+  followUp: (lang, label) =>
+    lang === "de"
+      ? `Was möchten Sie genau zu <b>${label}</b> wissen oder erreichen?`
+      : `What exactly would you like to know or achieve about <b>${label}</b>?`,
+  askContactDone: (lang) =>
+    lang === "de"
+      ? "Danke! Unser Team meldet sich zeitnah. Möchtest du direkt einen Termin wählen?"
+      : "Thanks! Our team will contact you soon. Would you like to pick a time now?"
+};
 
 const productLabels = {
   heatpump: { en: "Heat Pump 🔥", de: "Wärmepumpe 🔥" },
@@ -44,22 +84,35 @@ const toggle        = document.getElementById("modeToggle");
 const typingBubble  = document.getElementById("typing-bubble");
 const langSwitcher  = document.getElementById("langSwitcher");
 
+// robot intro elements
+const pvHero        = document.querySelector(".pv-hero");
+const pvBalloon     = document.querySelector(".pv-balloon span");
+
 // ========================
 // 🧠 Load Chat History
 // ========================
 let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
+let chatStarted = false; // start chat only after robot clicked
 
 function loadChatHistory() {
   chatHistory.forEach(entry => appendMessage(entry.message, entry.sender, false));
 }
 
-window.onload = () => {
+// ========================
+// 🚀 Init on load
+// ========================
+window.addEventListener("load", () => {
   const selectedLang = localStorage.getItem("selectedLang") || (CONFIG.LANG_DEFAULT || "de");
   langSwitcher.value = selectedLang;
-  updateFAQ(selectedLang);
-  updateUITexts(selectedLang);
-  loadChatHistory();
 
+  // Set initial robot balloon text to selected language
+  if (pvBalloon) pvBalloon.textContent = I18N.robotBalloon[selectedLang];
+
+  // Sidebar FAQ + header (chat UI stays hidden until robot is clicked)
+  updateFAQ(selectedLang);
+  updateHeaderOnly(selectedLang);
+
+  // Cookie consent
   const consent = localStorage.getItem("cookieConsent");
   if (!consent) {
     const banner = document.getElementById("cookie-banner");
@@ -67,13 +120,43 @@ window.onload = () => {
   } else if (consent === "accepted") {
     if (typeof enableGTM === "function") enableGTM();
   }
-};
+
+  // Hide chat area until robot tapped
+  hideChatArea();
+
+  // Hero click to start chat
+  if (pvHero) {
+    pvHero.style.cursor = "pointer";
+    pvHero.addEventListener("click", () => {
+      if (!chatStarted) {
+        chatStarted = true;
+        showChatArea();
+        startGreetingFlow();
+      }
+    });
+  }
+});
+
+// Show/Hide chat area helpers
+function hideChatArea() {
+  const container = document.querySelector(".chatbot-container");
+  const sidebar = document.querySelector(".faq-sidebar");
+  if (container) container.style.display = "none";
+  if (sidebar) sidebar.style.display = ""; // FAQ tetap tampil; kalau mau hilang juga, set "none"
+}
+function showChatArea() {
+  const container = document.querySelector(".chatbot-container");
+  if (container) container.style.display = "flex";
+  // optional: sembunyikan hero setelah diklik
+  if (pvHero) pvHero.style.display = "none";
+}
 
 // ========================
 // 🌗 Mode Switcher
 // ========================
 if (toggle) {
   toggle.addEventListener("change", () => {
+    document.body.classList.toggle("light-mode", toggle.checked);
     document.body.style.background = toggle.checked ? "var(--bg-light)" : "var(--bg-dark)";
     document.body.style.color      = toggle.checked ? "var(--text-light)" : "var(--text-dark)";
   });
@@ -86,8 +169,18 @@ if (langSwitcher) {
   langSwitcher.addEventListener("change", () => {
     const lang = langSwitcher.value;
     localStorage.setItem("selectedLang", lang);
+
+    // Update robot balloon immediately
+    if (pvBalloon) pvBalloon.textContent = I18N.robotBalloon[lang];
+
+    // Update FAQ + header (greeting only if chat started)
     updateFAQ(lang);
-    updateUITexts(lang);
+    if (chatStarted) {
+      updateUITexts(lang); // this resets chat log and re-greets
+    } else {
+      updateHeaderOnly(lang); // only header text before chat starts
+    }
+
     if (typeof gtag !== "undefined") {
       gtag('event', 'language_switch', { event_category: 'chatbot', event_label: lang });
     }
@@ -95,11 +188,17 @@ if (langSwitcher) {
 }
 
 // ========================
-// 📩 Form Submit Handler
+// 📨 Form Submit Handler
 // ========================
 if (form) {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!chatStarted) {
+      // safety: user hits enter before clicking robot
+      chatStarted = true;
+      showChatArea();
+      startGreetingFlow(false); // don't re-append greeting if user already typing
+    }
     const question = (input.value || "").trim();
     const selectedLang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
     if (!question) return;
@@ -107,11 +206,11 @@ if (form) {
     appendMessage(question, "user");
     saveToHistory("user", question);
     input.value = "";
-    typingBubble && (typingBubble.style.display = "block");
+    if (typingBubble) typingBubble.style.display = "block";
 
-    // If intent handled locally (FAQ/CTA), stop
+    // local intent
     if (detectIntent(question)) {
-      typingBubble && (typingBubble.style.display = "none");
+      if (typingBubble) typingBubble.style.display = "none";
       return;
     }
 
@@ -123,15 +222,12 @@ if (form) {
       });
 
       const data = await res.json();
-      typingBubble && (typingBubble.style.display = "none");
+      if (typingBubble) typingBubble.style.display = "none";
 
       const replyRaw = data.answer ?? data.reply;
       const reply = (typeof replyRaw === "string" ? replyRaw.trim() : "");
-      const fallbackMsg = selectedLang === "de"
-        ? `Ich bin mir nicht sicher. Bitte <a href="https://planville.de/kontakt" target="_blank" rel="noopener">📞 kontaktieren Sie unser Team hier</a>.`
-        : `I'm not sure about that. Please <a href="https://planville.de/kontakt" target="_blank" rel="noopener">📞 contact our team here</a>.`;
+      const finalReply = reply || I18N.unsure[selectedLang];
 
-      const finalReply = reply || fallbackMsg;
       appendMessage(finalReply, "bot");
       saveToHistory("bot", finalReply);
 
@@ -139,10 +235,31 @@ if (form) {
         trackChatEvent(question, selectedLang);
       }
     } catch (err) {
-      typingBubble && (typingBubble.style.display = "none");
+      if (typingBubble) typingBubble.style.display = "none";
       appendMessage("Error while connecting to the API.", "bot");
     }
   });
+}
+
+// ========================
+// 🧰 Greeting flow
+// ========================
+function startGreetingFlow(withProducts = true) {
+  const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
+  // Header + chat greeting
+  updateUITexts(lang); // this resets chat & adds greeting + product options
+  // show history AFTER reset? we only want fresh start -> do nothing.
+  if (!withProducts) {
+    // remove product block if flag says so
+    const productBlock = document.getElementById("product-options-block");
+    if (productBlock) productBlock.remove();
+  }
+}
+
+// Update header only (no reset)
+function updateHeaderOnly(lang) {
+  const h = document.querySelector(".chatbot-header h1");
+  if (h) h.innerText = I18N.header[lang];
 }
 
 // ========================
@@ -157,19 +274,19 @@ function appendMessage(msg, sender, scroll = true) {
     const feedback = document.createElement("div");
     feedback.className = "feedback-btns";
     feedback.innerHTML = `
-      <button onclick="feedbackClick('up')">👍</button>
-      <button onclick="feedbackClick('down')">👎</button>
+      <button onclick="feedbackClick('up')" aria-label="thumbs up">👍</button>
+      <button onclick="feedbackClick('down')" aria-label="thumbs down">👎</button>
     `;
     msgDiv.appendChild(feedback);
 
-    if ((msg || "").length > 100) {
+    if ((msg || "").replace(/<[^>]*>/g, "").length > 100) {
       const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
       const cta = document.createElement("a");
       cta.href = "https://planville.de/kontakt/";
       cta.target = "_blank";
       cta.rel = "noopener";
       cta.className = "cta-button";
-      cta.innerText = lang === "de" ? "Jetzt Beratung buchen 👉" : "Book a consultation 👉";
+      cta.innerText = I18N.ctaBook[lang];
       msgDiv.appendChild(cta);
     }
   }
@@ -179,7 +296,7 @@ function appendMessage(msg, sender, scroll = true) {
 }
 
 // ========================
-// 🧠 Save Chat
+// 💾 Save Chat
 // ========================
 function saveToHistory(sender, message) {
   chatHistory.push({ sender, message });
@@ -187,7 +304,7 @@ function saveToHistory(sender, message) {
 }
 
 // ========================
-// 🗑️ Reset Chat
+// ♻️ Reset Chat
 // ========================
 function resetChat() {
   localStorage.removeItem("chatHistory");
@@ -211,7 +328,6 @@ function updateFAQ(lang) {
     faqList.appendChild(li);
   });
 }
-
 function sendFAQ(text) {
   input.value = text;
   form.dispatchEvent(new Event("submit"));
@@ -229,17 +345,15 @@ function feedbackClick(type) {
 }
 
 // ========================
-// 🌐 Update Header & Greeting
+// 🧭 Update Header & Greeting
 // ========================
 function updateUITexts(lang) {
   const h = document.querySelector('.chatbot-header h1');
-  if (h) h.innerText = (lang === "de" ? "Chatte mit Planville AI 🤖" : "Chat with Planville AI 🤖");
-  resetChat();
+  if (h) h.innerText = I18N.header[lang];
 
-  const greeting = lang === "de"
-    ? "Hallo! 👋 Was kann ich für Sie tun?<br>Bitte wählen Sie ein Thema:"
-    : "Hello! 👋 What can I do for you?<br>Please choose a topic:";
-  appendMessage(greeting, "bot");
+  // Full reset + greeting (kept per your original)
+  resetChat();
+  appendMessage(I18N.greeting[lang], "bot");
   showProductOptions();
 }
 
@@ -271,27 +385,10 @@ function showProductOptions() {
 }
 
 // ========================
-// 🧩 Product Click
+// 🧩 Product Click  -> start funnel
 // ========================
 function handleProductSelection(key) {
-  const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
-  const label = productLabels[key][lang];
-  appendMessage(label, "user");
-
-  if (typeof gtag !== "undefined") {
-    gtag('event', 'select_product', {
-      event_category: 'chatbot_interaction',
-      event_label: key,
-      language: lang
-    });
-  }
-
-  setTimeout(() => {
-    const followUp = lang === "de"
-      ? `Was möchten Sie genau zu <b>${label}</b> wissen oder erreichen?`
-      : `What exactly would you like to know or achieve about <b>${label}</b>?`;
-    appendMessage(followUp, "bot");
-  }, 400);
+  startFunnel(key);
 }
 
 // ========================
@@ -299,14 +396,10 @@ function handleProductSelection(key) {
 // ========================
 function detectIntent(text) {
   const lower = (text || "").toLowerCase();
-
-  // Intent: price
+  // price intent
   if (lower.includes("harga") || lower.includes("kosten") || lower.includes("cost") || lower.includes("price")) {
     const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
-    const msg = lang === "de"
-      ? "Die Preise für Photovoltaik beginnen bei etwa 7.000€ bis 15.000€, abhängig von Größe & Standort. Für ein genaues Angebot:"
-      : "Prices for photovoltaics typically range from €7,000 to €15,000 depending on size & location. For an exact quote:";
-    appendMessage(msg, "bot");
+    appendMessage(I18N.priceMsg[lang], "bot");
 
     const cta = document.createElement("a");
     cta.href = "https://planville.de/kontakt/";
@@ -321,16 +414,13 @@ function detectIntent(text) {
     }
     return true;
   }
-
-  // Intent: interested
+  // interested intent
   if (lower.includes("tertarik") || lower.includes("interested")) {
     const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
-    const msg = lang === "de" ? "Super! Bitte füllen Sie dieses kurze Formular aus:" : "Great! Please fill out this short form:";
-    appendMessage(msg, "bot");
+    appendMessage(lang === "de" ? "Super! Bitte füllen Sie dieses kurze Formular aus:" : "Great! Please fill out this short form:", "bot");
     injectLeadMiniForm();
     return true;
   }
-
   return false;
 }
 
@@ -364,12 +454,7 @@ function injectLeadMiniForm() {
       return;
     }
 
-    appendMessage(
-      lang === "de"
-        ? `Vielen Dank ${name}! Unser Team wird Sie bald unter ${email} kontaktieren 🙌`
-        : `Thank you ${name}! Our team will contact you soon at ${email} 🙌`,
-      "bot"
-    );
+    appendMessage(I18N.miniFormThanks(lang, name, email), "bot");
 
     if (typeof gtag !== "undefined") {
       gtag('event', 'mini_form_submit', { event_category: 'leadform', event_label: email });
@@ -401,7 +486,7 @@ const Funnel = {
 };
 
 function startFunnel(productKey) {
-  track('funnel.start', {product: productKey});
+  track('funnel.start', { product: productKey });
   Funnel.reset();
   Funnel.state.product = productKey;
   const lang = langSwitcher.value || (CONFIG.LANG_DEFAULT || "de");
@@ -454,13 +539,13 @@ function askInput(text, fieldKey, validator) {
 }
 
 function exitWith(reason) {
-  track('lead.exit', {product: Funnel.state.product, reason});
+  track('lead.exit', { product: Funnel.state.product, reason });
   Funnel.state.data.qualified = false;
   Funnel.state.data.disqualifyReason = reason;
 
   const txt = 'Danke für dein Interesse! Aufgrund deiner Antworten können wir dir leider keine passende Dienstleistung anbieten. Schau aber gerne mal auf unserer Webseite vorbei!';
   const div = document.createElement('div');
-  div.className = 'exit-bubble';
+  div.className = 'exit-bubble'; // CSS kamu sudah styling warna teks hitam & bg sesuai
   div.innerText = txt;
   chatLog.appendChild(div);
   chatLog.scrollTop = chatLog.scrollHeight;
@@ -469,7 +554,7 @@ function exitWith(reason) {
   try {
     fetch(_baseURL() + '/lead', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         leadSource:'chatbot',
         product: Funnel.state.product,
@@ -478,14 +563,14 @@ function exitWith(reason) {
         contact:{ firstName:'-', email:'no@email.invalid' }
       })
     });
-  } catch(e){}
+  } catch (e) {}
 }
 
 function askNext() {
   const p = Funnel.state.product;
   const s = Funnel.state.step++;
-  track('funnel.step', {product: Funnel.state.product, step: Funnel.state.step});
-  Funnel.progress(((s)/Funnel.state.progressMax)*100);
+  track('funnel.step', { product: Funnel.state.product, step: Funnel.state.step });
+  Funnel.progress(((s) / Funnel.state.progressMax) * 100);
 
   // 0: owner
   if (s === 0) return askQuick(
@@ -655,15 +740,13 @@ function askContact() {
       };
 
       try {
-        const res = await fetch(_baseURL() + '/lead', {
+        await fetch(_baseURL() + '/lead', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify(payload)
-        });
-        await res.json().catch(()=> ({}));
-        appendMessage(langSwitcher.value==='de'
-          ? 'Danke! Unser Team meldet sich zeitnah. Möchtest du direkt einen Termin wählen?'
-          : 'Thanks! Our team will contact you soon. Would you like to pick a time now?', 'bot');
+        }).then(r => r.json()).catch(()=> ({}));
+
+        appendMessage(I18N.askContactDone(langSwitcher.value || "de"), 'bot');
         track('lead.created', {product: Funnel.state.product});
 
         // CTA Kalender (optional)
@@ -672,7 +755,6 @@ function askContact() {
           const btn = document.createElement('button'); btn.className='quick-btn'; btn.innerText='Termin buchen';
           btn.onclick = () => {
             track('calendar.cta_click', {product: Funnel.state.product});
-            // Inline modal
             const modal = document.createElement('div');
             modal.style.position='fixed'; modal.style.inset='0'; modal.style.background='rgba(0,0,0,0.5)';
             modal.onclick = e => { if (e.target === modal) document.body.removeChild(modal); };
@@ -701,32 +783,28 @@ function askContact() {
   }, 400);
 }
 
-// Override product click → start funnel
-const _oldHandleProductSelection = (typeof handleProductSelection === 'function') ? handleProductSelection : null;
-handleProductSelection = function(k){ startFunnel(k); };
-
 // ========================
 // 🧪 A/B Variant + Tracking
 // ========================
 const AB = { variant: (localStorage.getItem('ab_variant') || (Math.random() < 0.5 ? 'A' : 'B')) };
 localStorage.setItem('ab_variant', AB.variant);
 
-function track(eventName, props={}){
+function track(eventName, props = {}) {
   try {
     window.dataLayer = window.dataLayer || [];
-    window.dataLayer.push(Object.assign({event: eventName, variant: AB.variant}, props));
-  } catch(e){}
+    window.dataLayer.push(Object.assign({ event: eventName, variant: AB.variant }, props));
+  } catch (e) {}
   try {
     fetch(_baseURL() + '/track', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({event: eventName, props: Object.assign({variant: AB.variant}, props)})
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ event: eventName, props: Object.assign({ variant: AB.variant }, props) })
     });
-  } catch(e){}
+  } catch (e) {}
 }
 
 // Text variants (fixed: no recursion)
-function T(key){
+function T(key) {
   const v = AB.variant;
   const dict = {
     owner_q:   { A: 'Bist du Eigentümer:in der Immobilie?', B: 'Bist du Eigentümer/in der Immobilie?' },
