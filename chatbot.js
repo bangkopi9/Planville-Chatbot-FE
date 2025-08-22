@@ -132,6 +132,8 @@ window.addEventListener("load", () => {
         chatStarted = true;
         showChatArea();
         startGreetingFlow();
+    const __sb = document.querySelector('.faq-sidebar'); if (__sb) __sb.style.display='none';
+    const __fl = document.getElementById('faq-list'); if (__fl) __fl.innerHTML='';
       }
     });
   }
@@ -317,16 +319,7 @@ function resetChat() {
 // ========================
 // 📌 FAQ Updater
 // ========================
-function updateFAQ(lang) {
-  const faqList = document.getElementById("faq-list");
-  if (!faqList) return;
-  faqList.innerHTML = "";
-  (faqTexts[lang] || []).forEach((text) => {
-    const li = document.createElement("li");
-    li.innerText = text;
-    li.onclick = () => sendFAQ(text);
-    faqList.appendChild(li);
-  });
+function updateFAQ(lang){ const sb=document.querySelector('.faq-sidebar'); if (sb) sb.style.display='none'; const list=document.getElementById('faq-list'); if (list) list.innerHTML=''; return; });
 }
 function sendFAQ(text) {
   input.value = text;
