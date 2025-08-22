@@ -122,9 +122,7 @@ window.addEventListener("load", () => {
   }
 
   // Hide chat area until robot tapped
-  showChatArea();
-  chatStarted = true;
-  startGreetingFlow();
+  hideChatArea();
 
   // Hero click to start chat
   if (pvHero) {
@@ -321,23 +319,8 @@ function resetChat() {
 // ========================
 // 📌 FAQ Updater
 // ========================
-function updateFAQ(lang){
-  const list = document.getElementById('faq-list');
-  const sidebar = document.querySelector('.faq-sidebar');
-  if (!list || !sidebar) return;
-  list.innerHTML = '';
-  const items = (faqTexts[lang] || faqTexts['de']) || [];
-  items.forEach(txt => {
-    const li = document.createElement('li');
-    li.innerText = txt;
-    li.addEventListener('click', () => {
-      input.value = txt;
-      form.dispatchEvent(new Event('submit'));
-    });
-    list.appendChild(li);
-  });
+function updateFAQ(lang){ const sb=document.querySelector('.faq-sidebar'); if (sb) sb.style.display='none'; const list=document.getElementById('faq-list'); if (list) list.innerHTML=''; return; });
 }
-
 function sendFAQ(text) {
   input.value = text;
   form.dispatchEvent(new Event("submit"));
@@ -505,7 +488,6 @@ function startFunnel(productKey) {
 }
 
 function askQuick(text, options, fieldKey) {
-  appendMessage(text, 'bot');
   const group = document.createElement('div');
   group.className = 'quick-group';
 
@@ -514,11 +496,12 @@ function askQuick(text, options, fieldKey) {
     b.className = 'quick-btn';
     b.innerText = opt.label;
     b.onclick = () => {
-      appendMessage(opt.label, 'user');
-      Funnel.state.data[fieldKey] = opt.value;
-      askNext();
       group.remove();
-    };
+appendMessage(opt.label, 'user');
+      Funnel.state.data[fieldKey] = opt.value;
+    chatLog.scrollTop = chatLog.scrollHeight;
+queueMicrotask(() => { if (typeof opt !== 'undefined' && opt && opt.next) opt.next(); });
+};
     group.appendChild(b);
   });
   chatLog.appendChild(group);
