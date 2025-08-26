@@ -195,14 +195,13 @@ if (langSwitcher) {
 }
 
 // ========================
-// 📨 Form Submit Handler
+// 📨 Form Submit Handler  (→ AIGuard.ask)
 // ========================
 if (form) {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
 
     if (!chatStarted) {
-      // safety: user hits enter before clicking robot
       chatStarted = true;
       showChatArea();
       startGreetingFlow(false); // don't re-append greeting if user already typing
@@ -225,24 +224,38 @@ if (form) {
     }
 
     try {
-      const res = await fetch(`${_baseURL()}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: question, lang: selectedLang })
-      });
+      let finalReply = null;
 
-      const data = await res.json();
+      // gunakan AIGuard jika tersedia (ai_guardrails_vlite.js)
+      if (window.AIGuard && typeof AIGuard.ask === "function") {
+        const ai = await AIGuard.ask(question, selectedLang);
+        finalReply = (ai && ai.text) ? ai.text : null;
+      }
+
+      // fallback ke /chat jika AIGuard tidak ada / gagal
+      if (!finalReply) {
+        const res = await fetch(`${_baseURL()}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: question, lang: selectedLang })
+        });
+        const data = await res.json();
+        const replyRaw = data.answer ?? data.reply;
+        const reply = (typeof replyRaw === "string" ? replyRaw.trim() : "");
+        finalReply = reply || I18N.unsure[selectedLang];
+      }
+
       if (typingBubble) typingBubble.style.display = "none";
-
-      const replyRaw = data.answer ?? data.reply;
-      const reply = (typeof replyRaw === "string" ? replyRaw.trim() : "");
-      const finalReply = reply || I18N.unsure[selectedLang];
-
       appendMessage(finalReply, "bot");
       saveToHistory("bot", finalReply);
 
       if (typeof trackChatEvent === "function") {
         trackChatEvent(question, selectedLang);
+      }
+
+      // lanjutkan funnel kalau lagi aktif & tidak ada pertanyaan terbuka
+      if (window.AIGuard && typeof AIGuard.maybeContinueFunnel === "function") {
+        AIGuard.maybeContinueFunnel();
       }
     } catch (err) {
       if (typingBubble) typingBubble.style.display = "none";
@@ -514,6 +527,7 @@ const Funnel = {
     });
   }
 };
+window.Funnel = Funnel; // expose for other modules
 
 function startFunnel(productKey) {
   track('funnel.start', { product: productKey });
@@ -521,8 +535,8 @@ function startFunnel(productKey) {
   Funnel.state.product = productKey;
 
   const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
-  const label = productLabels[productKey][lang] || productKey; // PATCH: keep label
-  Funnel.state.productLabel = label; // PATCH: simpan label untuk payload
+  const label = productLabels[productKey][lang] || productKey; // keep label
+  Funnel.state.productLabel = label; // simpan label untuk payload
   appendMessage(label, 'user');
   askNext();
 }
@@ -542,7 +556,7 @@ function askQuick(text, options, fieldKey) {
       appendMessage(opt.label, 'user');
       Funnel.state.data[fieldKey] = opt.value;
 
-      // PATCH: end funnel on 'timeline' → show mini contact form (index.html)
+      // end funnel on 'timeline' → show mini contact form (index.html)
       if (fieldKey === 'timeline') {
         if (typeof window.onTimelineSelected === "function") {
           window.onTimelineSelected(opt.value);
@@ -612,7 +626,7 @@ function exitWith(reason) {
     chatLog.scrollTop = chatLog.scrollHeight;
   }
 
-  // PATCH: kirim disqualified lead pakai helper standar (index.html)
+  // kirim disqualified lead pakai helper standar (index.html)
   if (typeof window.sendDisqualifiedLead === "function") {
     window.sendDisqualifiedLead(reason);
   }
@@ -751,6 +765,7 @@ function askNext() {
     if (s === 6) return askContact();
   }
 }
+window.askNext = askNext; // expose for AIGuard.maybeContinueFunnel
 
 // ------------------------
 // 📇 Contact + CRM submit
@@ -762,7 +777,7 @@ function askContact() {
     { label: '3–6 Monate',  value: '3-6'  },
     { label: '6–12 Monate', value: '6-12' }
   ], 'timeline');
-  // ❌ (Dihapus) auto-pesan/CTA setelah timeline; sekarang ditangani oleh onTimelineSelected() di index.html
+  // (Auto-CTA setelah timeline dipindah ke onTimelineSelected di index.html)
 }
 
 // ========================
