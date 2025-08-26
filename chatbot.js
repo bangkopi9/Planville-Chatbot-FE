@@ -9,6 +9,46 @@ function _baseURL() {
     return b.endsWith("/") ? b.slice(0, -1) : b;
   } catch (e) { return ""; }
 }
+// prefer apiURL from index.html if available
+function _api(path) {
+  if (typeof apiURL === "function") return apiURL(path);
+  return _baseURL() + path;
+}
+// consent helpers (fallback jika index.html belum define trackFE)
+function _getConsentState(){
+  try {
+    const raw = localStorage.getItem("consent_v1");
+    if (raw) {
+      const c = JSON.parse(raw);
+      return { essential: true, analytics: !!c.analytics, marketing: !!c.marketing, personalization: !!c.personalization };
+    }
+  } catch(_) {}
+  const simple = localStorage.getItem("cookieConsent"); // "accepted" | "rejected"
+  return { essential: true, analytics: simple === "accepted", marketing: false, personalization: false };
+}
+function _allowAnalytics(){ return !!_getConsentState().analytics; }
+
+// gated track wrapper (akan pakai window.trackFE kalau ada)
+function track(eventName, props = {}, { essential = false } = {}) {
+  if (typeof window.trackFE === "function") {
+    // index.html gate + push + POST
+    return window.trackFE(eventName, props, { essential });
+  }
+  // fallback minimal
+  if (!essential && !_allowAnalytics()) return;
+  try {
+    window.dataLayer = window.dataLayer || [];
+    const variant = localStorage.getItem("ab_variant") || "A";
+    window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
+  } catch (e) {}
+  try {
+    fetch(_api('/track'), {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ event: eventName, props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props) })
+    });
+  } catch (e) {}
+}
 
 // ========================
 // 🌍 i18n strings for UI
@@ -188,9 +228,8 @@ if (langSwitcher) {
       updateHeaderOnly(lang); // only header text before chat starts
     }
 
-    if (typeof gtag !== "undefined") {
-      gtag('event', 'language_switch', { event_category: 'chatbot', event_label: lang });
-    }
+    // gated analytics
+    track('language_switch', { lang });
   });
 }
 
@@ -249,10 +288,9 @@ if (form) {
       appendMessage(finalReply, "bot");
       saveToHistory("bot", finalReply);
 
-      if (typeof trackChatEvent === "function") {
-        trackChatEvent(question, selectedLang);
-      }
-
+      // gated analytics
+      track('chat_message', { q_len: question.length, lang: selectedLang });
+      
       // lanjutkan funnel kalau lagi aktif & tidak ada pertanyaan terbuka
       if (window.AIGuard && typeof AIGuard.maybeContinueFunnel === "function") {
         AIGuard.maybeContinueFunnel();
@@ -354,6 +392,7 @@ function updateFAQ(lang) {
     li.addEventListener('click', () => {
       input.value = txt;
       form.dispatchEvent(new Event('submit'));
+      track('faq_click', { text: txt }); // gated
     });
     list.appendChild(li);
   });
@@ -362,7 +401,7 @@ function updateFAQ(lang) {
 function sendFAQ(text) {
   input.value = text;
   form.dispatchEvent(new Event("submit"));
-  if (typeof trackFAQClick === "function") trackFAQClick(text);
+  track('faq_click', { text }); // gated
 }
 
 // ========================
@@ -370,9 +409,7 @@ function sendFAQ(text) {
 // ========================
 function feedbackClick(type) {
   alert(type === "up" ? "Thanks for your feedback! 👍" : "We'll improve. 👎");
-  if (typeof gtag !== "undefined") {
-    gtag('event', 'chat_feedback', { event_category: 'chatbot', event_label: type });
-  }
+  track('chat_feedback', { type }); // gated
 }
 
 // ========================
@@ -408,7 +445,12 @@ function showProductOptions() {
     button.innerText = label;
     button.className = "product-button";
     button.dataset.key = key;
-    button.onclick = () => handleProductSelection(key);
+    button.onclick = () => {
+      // mark selected
+      document.querySelectorAll('.product-button.selected').forEach(b => b.classList.remove('selected'));
+      button.classList.add('selected');
+      handleProductSelection(key);
+    };
     container.appendChild(button);
   });
 
@@ -445,9 +487,7 @@ function detectIntent(text) {
 
     if (chatLog) chatLog.appendChild(cta);
 
-    if (typeof gtag !== "undefined") {
-      gtag('event', 'intent_preisinfo', { event_category: 'intent', event_label: text, language: lang });
-    }
+    track('intent_preisinfo', { text, language: lang }); // gated
     return true;
   }
 
@@ -497,10 +537,7 @@ function injectLeadMiniForm() {
     }
 
     appendMessage(I18N.miniFormThanks(lang, name, email), "bot");
-
-    if (typeof gtag !== "undefined") {
-      gtag('event', 'mini_form_submit', { event_category: 'leadform', event_label: email });
-    }
+    track('mini_form_submit', { email }); // gated
   });
 }
 
@@ -639,19 +676,38 @@ function askNext() {
   track('funnel.step', { product: p, step: Funnel.state.step });
   Funnel.progress(((s) / Funnel.state.progressMax) * 100);
 
-  // 0: owner
-  if (s === 0) return askQuick(T('owner_q'), [{ label: 'Ja', value: true }, { label: 'Nein', value: false }], 'owner');
+  // ==== A/B Gate Order ====
+  const ABv = localStorage.getItem('ab_variant') || 'A';
+  const gateFirst = (ABv === 'B') ? 'occupant' : 'owner'; // A: owner->occupant, B: occupant->owner
 
-  // owner check
-  if (s === 1 && Funnel.state.data.owner === false) return exitWith('kein_eigentümer');
+  if (s === 0) {
+    if (gateFirst === 'owner') {
+      return askQuick(T('owner_q'), [{ label: 'Ja', value: true }, { label: 'Nein', value: false }], 'owner');
+    } else {
+      return askQuick(T('occupy_q'), [{ label: 'Ja', value: true }, { label: 'Nein', value: false }], 'occupant');
+    }
+  }
 
-  // 1: occupant
-  if (s === 1) return askQuick(T('occupy_q'), [{ label: 'Ja', value: true }, { label: 'Nein', value: false }], 'occupant');
+  if (s === 1) {
+    if (gateFirst === 'owner') {
+      if (Funnel.state.data.owner === false) return exitWith('kein_eigentümer');
+      return askQuick(T('occupy_q'), [{ label: 'Ja', value: true }, { label: 'Nein', value: false }], 'occupant');
+    } else {
+      if (Funnel.state.data.occupant === false && p !== 'tenant') return exitWith('nicht_bewohnt');
+      return askQuick(T('owner_q'), [{ label: 'Ja', value: true }, { label: 'Nein', value: false }], 'owner');
+    }
+  }
 
-  // occupant check (not for tenant)
-  if (s === 2 && Funnel.state.data.occupant === false && p !== 'tenant') return exitWith('nicht_bewohnt');
+  if (s === 2) {
+    if (gateFirst === 'owner') {
+      if (Funnel.state.data.occupant === false && p !== 'tenant') return exitWith('nicht_bewohnt');
+    } else {
+      if (Funnel.state.data.owner === false) return exitWith('kein_eigentümer');
+    }
+    // lanjut ke pertanyaan produk-spesifik
+  }
 
-  // Branching
+  // ==== Branching per product ====
   if (p === 'pv') {
     if (s === 2) return askQuick('Welcher Gebäudetyp?', [
       { label: 'Einfamilienhaus', value: 'einfamilienhaus' },
@@ -787,20 +843,6 @@ const AB = {
   variant: (localStorage.getItem('ab_variant') || (Math.random() < 0.5 ? 'A' : 'B'))
 };
 localStorage.setItem('ab_variant', AB.variant);
-
-function track(eventName, props = {}) {
-  try {
-    window.dataLayer = window.dataLayer || [];
-    window.dataLayer.push(Object.assign({ event: eventName, variant: AB.variant }, props));
-  } catch (e) {}
-  try {
-    fetch(_baseURL() + '/track', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ event: eventName, props: Object.assign({ variant: AB.variant }, props) })
-    });
-  } catch (e) {}
-}
 
 // Text variants (fixed: no recursion)
 function T(key) {
