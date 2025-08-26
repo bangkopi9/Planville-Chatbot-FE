@@ -82,7 +82,7 @@
       <img src="planville-logo.png" alt="Planville Logo" class="chatbot-logo" />
       <h1>Chat with Planville AI</h1>
 
-      <!-- Dark/Light switch -->
+    <!-- Dark/Light switch -->
       <label class="switch">
         <input type="checkbox" id="modeToggle" />
         <span class="slider"></span>
@@ -177,8 +177,81 @@
 
   <!-- 🧠 GA4 & Event/Lead helpers + bootstrapping -->
   <script>
-    /* ---------- Analytics ---------- */
+    /* ---------- Consent & Analytics Gate (A) ---------- */
+    function getConsentState(){
+      try {
+        const raw = localStorage.getItem("consent_v1");
+        if (raw) {
+          const c = JSON.parse(raw);
+          return {
+            essential: true,
+            analytics: !!c.analytics,
+            marketing: !!c.marketing,
+            personalization: !!c.personalization
+          };
+        }
+      } catch(_) {}
+      const simple = localStorage.getItem("cookieConsent"); // "accepted" | "rejected"
+      return { essential: true, analytics: simple === "accepted", marketing: false, personalization: false };
+    }
+    function allowAnalytics(){ return !!getConsentState().analytics; }
+
+    // Single place to send FE events (gated)
+    function trackFE(eventName, props = {}, { essential = false } = {}) {
+      if (!essential && !allowAnalytics()) return;
+
+      try {
+        window.dataLayer = window.dataLayer || [];
+        const variant = localStorage.getItem("ab_variant") || "A";
+        window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
+      } catch(_) {}
+
+      try {
+        fetch(apiURL("/track"), {
+          method: "POST",
+          headers: { "Content-Type":"application/json" },
+          body: JSON.stringify({ event: eventName, props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props) })
+        });
+      } catch(_) {}
+    }
+
+    /* ---------- Scoring sederhana (A) ---------- */
+    function computeLeadScore(product, q = {}) {
+      const p = (product || "").toLowerCase();
+      const area = parseFloat(q.area_sqm || q.dachflache_m2 || 0) || 0;
+      const orient = String(q.orientation || q.ausrichtung || "").toLowerCase();
+      const verschattung = String(q.verschattung || "").toLowerCase();
+      const consKwh = parseInt(q.consumption_kwh || q.verbrauch_kwh || 0, 10) || 0;
+      const timeline = String(q.timeline || q.zeitrahmen || "").toLowerCase();
+
+      let score = 50; // base
+      if (area >= 60) score += 10;
+      if (consKwh >= 3500) score += 6;
+      if (timeline === "0-3" || timeline.includes("sofort") || timeline.includes("1-3")) score += 10;
+
+      if (["pv","photovoltaik","pv-anlage"].some(k => p.includes(k))) {
+        if (/(süd|sued|south)/.test(orient)) score += 8;
+        if (verschattung === "keine" || verschattung === "leicht") score += 6;
+      }
+      if (p.includes("dach")) {
+        if (["undicht","leak","damage","beschädigt"].some(k => (q.issues||"").toLowerCase().includes(k))) score += 10;
+      }
+      if (p.includes("wp") || p.includes("wärme") || p.includes("waerme") || p.includes("heat")) {
+        if (parseFloat(q.living_area || 0) >= 80) score += 10;
+        if (q.pv_combo === true) score += 6;
+      }
+      if (p.includes("mieter") || p.includes("tenant")) {
+        if (parseInt(q.units || 0, 10) >= 6) score += 10;
+        if (q.owner2 === true) score += 8;
+      }
+      if (q.qualified === false || q.disqualifyReason) score = 0;
+
+      return Math.max(0, Math.min(100, score));
+    }
+
+    /* ---------- Analytics (B & C) ---------- */
     function enableGTM() {
+      if (!allowAnalytics()) return; // gate by consent
       const s = document.createElement("script");
       s.src = "https://www.googletagmanager.com/gtag/js?id=G-YL8ECJ5V17";
       s.async = true;
@@ -192,22 +265,26 @@
     }
 
     function trackChatEvent(question, lang) {
+      if (!allowAnalytics()) return;
       if (typeof gtag !== "undefined") {
         gtag('event', 'chat_message', { event_category: 'chatbot', event_label: question, language: lang });
       }
     }
     function trackFAQClick(text) {
+      if (!allowAnalytics()) return;
       if (typeof gtag !== "undefined") {
         const selectedLang = document.getElementById("langSwitcher").value;
         gtag('event', 'faq_click', { event_category: 'faq', event_label: text, language: selectedLang });
       }
     }
     function trackConfigStart() {
+      if (!allowAnalytics()) return;
       if (typeof gtag !== "undefined") {
         gtag('event', 'start_config_click', { event_category: 'konfigurator', event_label: 'Jetzt starten' });
       }
     }
     function trackConfigSubmit(product) {
+      if (!allowAnalytics()) return;
       if (typeof gtag !== "undefined") {
         gtag('event', 'config_submit_success', { event_category: 'konfigurator', event_label: product });
       }
@@ -227,8 +304,7 @@
       alert("Einstellungsseite ist noch in Entwicklung.");
     }
 
-    /* ---------- Lead → Backend (/lead) ---------- */
-    // PATCH: support qualification
+    /* ---------- Lead → Backend (/lead)  (D) ---------- */
     async function sendLeadToBackend({productLabel, name, address, email, phone, origin, qualification}) {
       const lang = getLang();
       const product = mapProduct(productLabel);
@@ -236,25 +312,24 @@
         ? qualification
         : { origin: origin || "form", product_label: productLabel };
 
+      // compute score sebelum push
+      const score = computeLeadScore(product, q);
+
       const payload = {
         source: "Website Funnel",
         product,
         qualification: q,
         contact: { name, address, email, phone },
-        score: 0,
+        score,
         disqualified: false,
         notes: origin ? `Submitted via ${origin}` : "Submitted via index form",
-        meta: { lang, session_id: sessionId(), variant: "A" }
+        meta: { lang, session_id: sessionId(), variant: (localStorage.getItem("ab_variant") || "A") }
       };
 
-      // Optional: simple event sink
-      try {
-        fetch("/track", { method:"POST", headers:{ "Content-Type":"application/json" },
-          body: JSON.stringify({ event:"contact_submit", props:{ product, origin: origin||"unknown" } })
-        });
-      } catch(_){}
+      // FE analytics (gated)
+      trackFE("contact_submit", { product, origin: origin||"unknown" });
 
-      const res = await fetch("/lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+      const res = await fetch(apiURL("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error("Lead push failed");
       return res.json();
     }
@@ -318,11 +393,10 @@
       });
     }
 
-    /* ---------- Dipanggil saat user memilih timeline ---------- */
+    /* ---------- Dipanggil saat user memilih timeline (E) ---------- */
     window.onTimelineSelected = function(timelineValue){
       const lang = getLang();
 
-      // Product label & data funnel
       const productLabel = (window.Funnel?.state?.productLabel)
         || (document.querySelector(".product-button.selected")?.textContent)
         || "Photovoltaik";
@@ -339,14 +413,11 @@
 
       injectLeadContactFormChat(productLabel, qualification);
 
-      try {
-        fetch("/track", { method:"POST", headers:{ "Content-Type":"application/json" },
-          body: JSON.stringify({ event:"contact_open", props:{ product: mapProduct(productLabel), timeline: timelineValue } })
-        });
-      } catch(_){}
+      // gated track
+      trackFE("contact_open", { product: mapProduct(productLabel), timeline: timelineValue });
     };
 
-    /* ---------- Kirim lead disqualified (owner/bewohner gate) ---------- */
+    /* ---------- Kirim lead disqualified (owner/bewohner gate) (E) ---------- */
     window.sendDisqualifiedLead = function(reason){
       const lang = getLang();
       const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
@@ -359,14 +430,12 @@
         score: 0,
         disqualified: true,
         notes: "Auto-disqualify gate",
-        meta: { lang, session_id: sessionId() }
+        meta: { lang, session_id: sessionId(), variant: (localStorage.getItem("ab_variant") || "A") }
       };
       try {
-        fetch("/lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
-        fetch("/track", { method:"POST", headers:{ "Content-Type":"application/json" },
-          body: JSON.stringify({ event:"disqualify", props:{ product: payload.product, reason: payload.qualification.disqualify_reason } })
-        });
+        fetch(apiURL("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
       } catch(_){}
+      trackFE("disqualify", { product: payload.product, reason: payload.qualification.disqualify_reason });
     };
 
     /* ---------- Lead form (wizard) ---------- */
@@ -394,7 +463,7 @@
           origin: "wizard"
         });
         alert("Vielen Dank! Wir melden uns bald.");
-        if (typeof gtag !== "undefined") {
+        if (typeof gtag !== "undefined" && allowAnalytics()) {
           gtag('event', 'wizard_submit', { event_category: 'leadform', event_label: productLabel });
         }
         document.getElementById("form-wizard").style.display = "none";
