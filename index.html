@@ -54,7 +54,7 @@
       const t = (p||"").toLowerCase();
       if (t.includes("photo") || t.includes("pv")) return "pv";
       if (t.includes("dach")) return "dach";
-      if (t.includes("wärme") || t.includes("warme") || t.includes("waerme")) return "wp";
+      if (t.includes("wärme") || t.includes("warme") || t.includes("waerme") || t.includes("heat")) return "wp";
       if (t.includes("mieter")) return "mieterstrom";
       if (t.includes("klima")) return "wp"; // atau buat branch AC sendiri nanti
       if (t.includes("speicher")) return "pv"; // baterai dianggap add-on PV
@@ -82,7 +82,7 @@
       <img src="planville-logo.png" alt="Planville Logo" class="chatbot-logo" />
       <h1>Chat with Planville AI</h1>
 
-    <!-- Dark/Light switch -->
+      <!-- Dark/Light switch -->
       <label class="switch">
         <input type="checkbox" id="modeToggle" />
         <span class="slider"></span>
@@ -172,7 +172,8 @@
   </div>
 
   <!-- ⚙️ AI Q&A ringan + Chatbot -->
-  <script defer src="js/ai_guardrails_vlite.js"></script>
+  <!-- FIX: file ini ada di root, bukan /js -->
+  <script defer src="ai_guardrails_vlite.js"></script>
   <script defer src="chatbot.js"></script>
 
   <!-- 🧠 GA4 & Event/Lead helpers + bootstrapping -->
@@ -292,12 +293,15 @@
 
     /* ---------- Cookie consent ---------- */
     function acceptCookies() {
+      // Simple flag + structured state
       localStorage.setItem("cookieConsent", "accepted");
+      localStorage.setItem("consent_v1", JSON.stringify({ analytics: true, marketing: false, personalization: false }));
       document.getElementById("cookie-banner").style.display = "none";
       enableGTM();
     }
     function rejectCookies() {
       localStorage.setItem("cookieConsent", "rejected");
+      localStorage.setItem("consent_v1", JSON.stringify({ analytics: false, marketing: false, personalization: false }));
       document.getElementById("cookie-banner").style.display = "none";
     }
     function openSettings() {
