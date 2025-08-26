@@ -26,7 +26,6 @@
       window.fetch = function(input, init){
         try {
           const rewrite = (u) => {
-            // rewrite endpoint yang umum dipakai FE
             if (/^\/(chat|track|lead|funnel\/next|ai\/answer|save-config)(\/.*)?$/.test(u)) {
               return apiURL(u);
             }
@@ -172,7 +171,8 @@
     </div>
   </div>
 
-  <!-- ⚙️ Chatbot Logic (external) -->
+  <!-- ⚙️ AI Q&A ringan + Chatbot -->
+  <script defer src="js/ai_guardrails_vlite.js"></script>
   <script defer src="chatbot.js"></script>
 
   <!-- 🧠 GA4 & Event/Lead helpers + bootstrapping -->
@@ -307,7 +307,6 @@
           });
           appendMessage?.(lang==="de"?"Danke! Wir melden uns in Kürze.":"Thank you! We’ll contact you shortly.","bot");
 
-          // CTA ke Kontaktseite
           const cta = document.createElement("a");
           cta.href="https://planville.de/kontakt"; cta.target="_blank";
           cta.className="cta-button"; cta.innerText = lang==="de"?"Jetzt buchen":"Contact us";
@@ -320,11 +319,10 @@
     }
 
     /* ---------- Dipanggil saat user memilih timeline ---------- */
-    // NOTE: chatbot.js akan memanggil ini setelah set field 'timeline'
     window.onTimelineSelected = function(timelineValue){
       const lang = getLang();
 
-      // Ambil product label & data funnel yang sudah terkumpul
+      // Product label & data funnel
       const productLabel = (window.Funnel?.state?.productLabel)
         || (document.querySelector(".product-button.selected")?.textContent)
         || "Photovoltaik";
@@ -332,7 +330,6 @@
         ? { ...window.Funnel.state.data, timeline: timelineValue }
         : { timeline: timelineValue, product_label: productLabel };
 
-      // Ringkasan kecil (opsional)
       appendMessage?.(
         lang==="de"
           ? "Super, dann sind wir fast fertig. Bitte trage deine Kontaktdaten ein:"
@@ -340,10 +337,8 @@
         "bot"
       );
 
-      // Tampilkan form kontak mini
       injectLeadContactFormChat(productLabel, qualification);
 
-      // Track open
       try {
         fetch("/track", { method:"POST", headers:{ "Content-Type":"application/json" },
           body: JSON.stringify({ event:"contact_open", props:{ product: mapProduct(productLabel), timeline: timelineValue } })
@@ -410,7 +405,7 @@
         alert("Verbindung fehlgeschlagen.");
       }
     }
-    window.submitLead = submitLead; // dipakai di onclick
+    window.submitLead = submitLead;
 
     /* ---------- Konfigurator (simple) -> kirim ke backend kamu ---------- */
     async function sendConfigSimple() {
@@ -446,56 +441,6 @@
       }
     }
 
-    /* ---------- Greeting & product quick actions ---------- */
-    function showProductOptions() {
-      const productOptions = [
-        "Photovoltaikanlage ☀️",
-        "Klimaanlage ❄️",
-        "Wärmepumpe 🔥",
-        "Mieterstrom 🏠",
-        "Dachsanierung 🛠️"
-      ];
-      const container = document.createElement("div");
-      container.className = "product-options";
-
-      productOptions.forEach(product => {
-        const button = document.createElement("button");
-        button.innerText = product;
-        button.className = "product-button";
-        button.onclick = () => handleProductSelection(product);
-        container.appendChild(button);
-      });
-
-      document.getElementById("chatbot-log").appendChild(container);
-      scrollToBottom?.();
-    }
-
-    function handleProductSelection(product) {
-      appendMessage?.(product, "user");
-      setTimeout(() => {
-        appendMessage?.(`Was möchten Sie genau zu <b>${product}</b> wissen oder erreichen?`, "bot");
-      }, 500);
-    }
-
-    function handleFinalUserInput(userText) {
-      appendMessage?.(userText, "user");
-      setTimeout(() => {
-        appendMessage?.(
-          `Vielen Dank! 😊 Unser Team hilft Ihnen gerne weiter.<br><br>
-          Für eine persönliche Beratung klicken Sie bitte auf den Button unten:`,
-          "bot"
-        );
-        const btn = document.createElement("a");
-        btn.href = "https://planville.de/kontakt";
-        btn.target = "_blank";
-        btn.className = "cta-button";
-        btn.innerText = "💬 Jetzt Kontakt aufnehmen";
-        document.getElementById("chatbot-log").appendChild(btn);
-        scrollToBottom?.();
-      }, 1000);
-    }
-    window.handleFinalUserInput = handleFinalUserInput;
-
     /* ---------- Bootstrapping on load ---------- */
     window.onload = function () {
       // Cookie consent
@@ -524,10 +469,10 @@
       const submitCfg = document.getElementById("submitConfig");
       if (submitCfg) submitCfg.addEventListener("click", sendConfigSimple);
 
-      // Initial greeting
+      // Initial greeting (pakai showProductOptions dari chatbot.js)
       setTimeout(() => {
         appendMessage?.("Hallo! 👋 Was kann ich für Sie tun?<br>Bitte wählen Sie ein Thema:", "bot");
-        showProductOptions();
+        showProductOptions?.();
       }, 800);
     };
   </script>
