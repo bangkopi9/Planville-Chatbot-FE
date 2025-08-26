@@ -8,9 +8,9 @@
 
   <!-- ===== Global Config + API URL helper (PASTIKAN DOMAINNYA BENAR) ===== -->
   <script>
-    // GANTI ke domain backend Railway kamu
+    // GANTI ke domain backend Railway kamu (disamakan satu sumber)
     window.CONFIG = {
-      BASE_API_URL: "https://web-production-44ece.up.railway.app"
+      BASE_API_URL: "https://web-production-352d9.up.railway.app"
     };
 
     // Bangun URL absolut ke backend
@@ -20,14 +20,14 @@
       return base ? `${base}${p}` : p;
     }
 
-    // (Opsional, tapi praktis) Rewriter: jika ada fetch ke /chat, /track, /save-config, arahkan ke backend
+    // (Opsional, tapi praktis) Rewriter: arahkan panggilan relatif ke backend
     (function patchFetch(){
       const orig = window.fetch;
       window.fetch = function(input, init){
         try {
           const rewrite = (u) => {
-            // hanya rewrite kalau path relatif ke root FE
-            if (/^\/(chat|track|api\/chat|api\/track|save-config)(\/.*)?$/.test(u)) {
+            // rewrite endpoint yang umum dipakai FE
+            if (/^\/(chat|track|lead|funnel\/next|ai\/answer|save-config)(\/.*)?$/.test(u)) {
               return apiURL(u);
             }
             return u;
@@ -35,16 +35,33 @@
           if (typeof input === "string") {
             input = rewrite(input);
           } else if (input && input.url) {
-            // Request object
             const url = rewrite(input.url);
-            if (url !== input.url) {
-              input = new Request(url, input);
-            }
+            if (url !== input.url) input = new Request(url, input);
           }
         } catch(_) {}
         return orig(input, init);
       };
     })();
+
+    // Helper kecil
+    function getLang(){ try { return document.getElementById("langSwitcher").value || "de"; } catch(_) { return "de"; } }
+    function sessionId(){
+      let s = localStorage.getItem("session_id");
+      if (!s){ s = Date.now()+"-"+Math.random().toString(36).slice(2); localStorage.setItem("session_id", s); }
+      return s;
+    }
+    function mapProduct(p){
+      // Normalisasi label UI -> kode backend (pv|dach|wp|mieterstrom)
+      const t = (p||"").toLowerCase();
+      if (t.includes("photo") || t.includes("pv")) return "pv";
+      if (t.includes("dach")) return "dach";
+      if (t.includes("wärme") || t.includes("warme") || t.includes("waerme")) return "wp";
+      if (t.includes("mieter")) return "mieterstrom";
+      if (t.includes("klima")) return "wp"; // atau buat branch AC sendiri nanti
+      if (t.includes("speicher")) return "pv"; // baterai dianggap add-on PV
+      return "pv";
+    }
+    function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e||"").trim()); }
   </script>
 </head>
 
@@ -97,7 +114,7 @@
   <!-- 📋 CONFIGURATOR FORM (SIMPLE) -->
   <div id="configForm" class="config-form" style="display:none;">
     <h2>Produkt wählen</h2>
-    <select id="productSelect">
+    <select id="productSelect" required>
       <option value="">Bitte auswählen</option>
       <option value="PV-Anlage">PV-Anlage</option>
       <option value="Dachsanierung">Dachsanierung</option>
@@ -109,6 +126,8 @@
     <h2>Kontaktdaten</h2>
     <input type="text" id="vorname" placeholder="Vorname" required />
     <input type="text" id="nachname" placeholder="Nachname" required />
+    <input type="text" id="adresse" placeholder="Adresse" required />
+    <input type="email" id="email" placeholder="E-Mail" required />
     <input type="tel" id="telefon" placeholder="Telefonnummer" required />
     <button id="submitConfig" type="button">Absenden</button>
   </div>
@@ -130,6 +149,12 @@
 
     <label for="lname">Nachname:</label>
     <input id="lname" type="text" required />
+
+    <label for="addr">Adresse:</label>
+    <input id="addr" type="text" required />
+
+    <label for="mail">E-Mail:</label>
+    <input id="mail" type="email" required />
 
     <label for="phone">Telefonnummer:</label>
     <input id="phone" type="tel" required />
@@ -168,40 +193,23 @@
 
     function trackChatEvent(question, lang) {
       if (typeof gtag !== "undefined") {
-        gtag('event', 'chat_message', {
-          event_category: 'chatbot',
-          event_label: question,
-          language: lang
-        });
+        gtag('event', 'chat_message', { event_category: 'chatbot', event_label: question, language: lang });
       }
     }
-
     function trackFAQClick(text) {
       if (typeof gtag !== "undefined") {
         const selectedLang = document.getElementById("langSwitcher").value;
-        gtag('event', 'faq_click', {
-          event_category: 'faq',
-          event_label: text,
-          language: selectedLang
-        });
+        gtag('event', 'faq_click', { event_category: 'faq', event_label: text, language: selectedLang });
       }
     }
-
     function trackConfigStart() {
       if (typeof gtag !== "undefined") {
-        gtag('event', 'start_config_click', {
-          event_category: 'konfigurator',
-          event_label: 'Jetzt starten'
-        });
+        gtag('event', 'start_config_click', { event_category: 'konfigurator', event_label: 'Jetzt starten' });
       }
     }
-
     function trackConfigSubmit(product) {
       if (typeof gtag !== "undefined") {
-        gtag('event', 'config_submit_success', {
-          event_category: 'konfigurator',
-          event_label: product
-        });
+        gtag('event', 'config_submit_success', { event_category: 'konfigurator', event_label: product });
       }
     }
 
@@ -219,75 +227,95 @@
       alert("Einstellungsseite ist noch in Entwicklung.");
     }
 
-    /* ---------- Lead form (wizard) ---------- */
-    function submitLead() {
-      const leadData = {
-        produkt: document.getElementById("product-choice").value,
-        vorname: document.getElementById("fname").value,
-        nachname: document.getElementById("lname").value,
-        telefon: document.getElementById("phone").value,
+    /* ---------- Lead → Backend (/lead) ---------- */
+    async function sendLeadToBackend({productLabel, name, address, email, phone, origin}) {
+      const lang = getLang();
+      const product = mapProduct(productLabel);
+      const payload = {
+        source: "Website Funnel",
+        product,
+        qualification: { origin: origin || "form", product_label: productLabel },
+        contact: { name, address, email, phone },
+        score: 0,
+        disqualified: false,
+        notes: "Submitted via index form",
+        meta: { lang, session_id: sessionId(), variant: "A" }
       };
 
-      // TODO: ganti ke Apps Script kamu jika dipakai
-      const sheetURL = "https://script.google.com/macros/s/YOUR-SCRIPT-ID/exec";
+      // Optional: simple event sink
+      try { fetch("/track", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ event:"contact_submit", props:{ product } }) }); } catch(_){}
 
-      fetch(sheetURL, {
-        method: "POST",
-        body: JSON.stringify(leadData),
-        headers: { "Content-Type": "application/json" }
-      })
-      .then((res) => {
-        if (res.ok) {
-          alert("Vielen Dank! Wir melden uns bald.");
-          if (typeof gtag !== "undefined") {
-            gtag('event', 'wizard_submit', {
-              event_category: 'leadform',
-              event_label: leadData.produkt
-            });
-          }
-          document.getElementById("form-wizard").style.display = "none";
-          const btn = document.getElementById("startConfigBtn");
-          if (btn) btn.style.display = "block";
-        } else {
-          alert("Fehler beim Absenden. Bitte erneut versuchen.");
+      const res = await fetch("/lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error("Lead push failed");
+      return res.json();
+    }
+
+    /* ---------- Lead form (wizard) ---------- */
+    async function submitLead() {
+      const productLabel = document.getElementById("product-choice").value;
+      const fname  = document.getElementById("fname").value.trim();
+      const lname  = document.getElementById("lname").value.trim();
+      const addr   = document.getElementById("addr").value.trim();
+      const mail   = document.getElementById("mail").value.trim();
+      const phone  = document.getElementById("phone").value.trim();
+
+      if (!productLabel || !fname || !lname || !addr || !mail || !phone) {
+        alert("Bitte alle Felder ausfüllen.");
+        return;
+      }
+      if (!validEmail(mail)) { alert("Bitte eine gültige E-Mail eingeben."); return; }
+
+      try {
+        await sendLeadToBackend({
+          productLabel,
+          name: `${fname} ${lname}`.trim(),
+          address: addr,
+          email: mail,
+          phone,
+          origin: "wizard"
+        });
+        alert("Vielen Dank! Wir melden uns bald.");
+        if (typeof gtag !== "undefined") {
+          gtag('event', 'wizard_submit', { event_category: 'leadform', event_label: productLabel });
         }
-      })
-      .catch((err) => {
+        document.getElementById("form-wizard").style.display = "none";
+        const btn = document.getElementById("startConfigBtn");
+        if (btn) btn.style.display = "block";
+      } catch (err) {
         console.error("Fehler beim Formular:", err);
         alert("Verbindung fehlgeschlagen.");
-      });
+      }
     }
     window.submitLead = submitLead; // dipakai di onclick
 
     /* ---------- Konfigurator (simple) -> kirim ke backend kamu ---------- */
     async function sendConfigSimple() {
-      const product = document.getElementById("productSelect").value;
+      const productLabel = document.getElementById("productSelect").value;
       const vorname = document.getElementById("vorname").value.trim();
       const nachname = document.getElementById("nachname").value.trim();
+      const adresse = document.getElementById("adresse").value.trim();
+      const email   = document.getElementById("email").value.trim();
       const telefon = document.getElementById("telefon").value.trim();
 
-      if (!product || !vorname || !nachname || !telefon) {
+      if (!productLabel || !vorname || !nachname || !adresse || !email || !telefon) {
         alert("Bitte alle Felder ausfüllen.");
         return;
       }
-
-      const payload = { vorname, nachname, telefon, product };
+      if (!validEmail(email)) { alert("Bitte eine gültige E-Mail eingeben."); return; }
 
       try {
-        const res = await fetch(apiURL("/save-config"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
+        await sendLeadToBackend({
+          productLabel,
+          name: `${vorname} ${nachname}`.trim(),
+          address: adresse,
+          email,
+          phone: telefon,
+          origin: "simple-config"
         });
-
-        if (res.ok) {
-          alert("Danke! Wir haben Ihre Anfrage erhalten.");
-          trackConfigSubmit(product);
-          document.getElementById("configForm").reset();
-          document.getElementById("configForm").style.display = "none";
-        } else {
-          alert("Fehler beim Senden. Bitte versuchen Sie es später erneut.");
-        }
+        alert("Danke! Wir haben Ihre Anfrage erhalten.");
+        trackConfigSubmit(productLabel);
+        document.getElementById("configForm").reset();
+        document.getElementById("configForm").style.display = "none";
       } catch (err) {
         console.error(err);
         alert("Serverfehler. Bitte später erneut versuchen.");
