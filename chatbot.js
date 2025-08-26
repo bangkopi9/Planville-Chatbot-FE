@@ -53,11 +53,11 @@ const I18N = {
 };
 
 const productLabels = {
-  heatpump: { en: "Heat Pump 🔥", de: "Wärmepumpe 🔥" },
+  heatpump: { en: "Heat Pump 🔥",       de: "Wärmepumpe 🔥" },
   aircon:   { en: "Air Conditioner ❄️", de: "Klimaanlage ❄️" },
   pv:       { en: "Photovoltaic System ☀️", de: "Photovoltaikanlage ☀️" },
   roof:     { en: "Roof Renovation 🛠️", de: "Dachsanierung 🛠️" },
-  tenant:   { en: "Tenant Power 🏠", de: "Mieterstrom 🏠" },
+  tenant:   { en: "Tenant Power 🏠",    de: "Mieterstrom 🏠" },
 };
 
 // ========================
@@ -495,8 +495,8 @@ function injectLeadMiniForm() {
 // 🚦 Conversational Funnel (Multi-Product)
 // ========================
 const Funnel = {
-  state: { product: null, step: 0, data: {}, progressMax: 8 },
-  reset() { this.state = { product: null, step: 0, data: {}, progressMax: 8 }; },
+  state: { product: null, productLabel: null, step: 0, data: {}, progressMax: 8 },
+  reset() { this.state = { product: null, productLabel: null, step: 0, data: {}, progressMax: 8 }; },
   progress(percent) {
     let bar = document.getElementById('funnel-progress-bar');
     if (!bar) {
@@ -521,7 +521,9 @@ function startFunnel(productKey) {
   Funnel.state.product = productKey;
 
   const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
-  appendMessage(productLabels[productKey][lang], 'user');
+  const label = productLabels[productKey][lang] || productKey; // PATCH: keep label
+  Funnel.state.productLabel = label; // PATCH: simpan label untuk payload
+  appendMessage(label, 'user');
   askNext();
 }
 
@@ -539,6 +541,16 @@ function askQuick(text, options, fieldKey) {
     b.onclick = () => {
       appendMessage(opt.label, 'user');
       Funnel.state.data[fieldKey] = opt.value;
+
+      // PATCH: end funnel on 'timeline' → show mini contact form (index.html)
+      if (fieldKey === 'timeline') {
+        if (typeof window.onTimelineSelected === "function") {
+          window.onTimelineSelected(opt.value);
+        }
+        group.remove();
+        return; // stop auto-continue; contact form is the last step
+      }
+
       askNext();
       group.remove();
     };
@@ -600,20 +612,10 @@ function exitWith(reason) {
     chatLog.scrollTop = chatLog.scrollHeight;
   }
 
-  // send disqualified lead (minimal payload)
-  try {
-    fetch(_baseURL() + '/lead', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        leadSource: 'chatbot',
-        product: Funnel.state.product,
-        qualified: false,
-        disqualifyReason: reason,
-        contact: { firstName: '-', email: 'no@email.invalid' }
-      })
-    });
-  } catch (e) {}
+  // PATCH: kirim disqualified lead pakai helper standar (index.html)
+  if (typeof window.sendDisqualifiedLead === "function") {
+    window.sendDisqualifiedLead(reason);
+  }
 }
 
 function askNext() {
@@ -656,7 +658,7 @@ function askNext() {
       if (area && area < 10) return exitWith('dachfläche_zu_klein');
       return askQuick('Dachausrichtung?', [
         { label: 'Süd', value: 'sued' }, { label: 'West', value: 'west' },
-        { label: 'Ost', value: 'ost' }, { label: 'Nord', value: 'nord' },
+        { label: 'Ost', value: 'ost' },  { label: 'Nord', value: 'nord' },
         { label: 'Kombination', value: 'kombination' }
       ], 'orientation');
     }
@@ -754,58 +756,13 @@ function askNext() {
 // 📇 Contact + CRM submit
 // ------------------------
 function askContact() {
-  // timeline
+  // Hanya ajukan timeline; mini-form kontak muncul saat opsi timeline dipilih (lihat hook di askQuick)
   askQuick(T('timeline_q'), [
-    { label: '0–3 Monate', value: '0-3' },
-    { label: '3–6 Monate', value: '3-6' },
+    { label: '0–3 Monate',  value: '0-3'  },
+    { label: '3–6 Monate',  value: '3-6'  },
     { label: '6–12 Monate', value: '6-12' }
   ], 'timeline');
-
-  // form removed by request
-  setTimeout(() => {
-    const lang = (langSwitcher && langSwitcher.value) || "de";
-    appendMessage(I18N.askContactDone(lang), 'bot');
-
-    // optional: show calendar CTA if configured
-    if (typeof CONFIG !== "undefined" && CONFIG.CALENDAR_URL) {
-      const ctaWrap = document.createElement('div');
-      ctaWrap.className = 'quick-group';
-
-      const btn = document.createElement('button');
-      btn.className = 'quick-btn';
-      btn.type = 'button';
-      btn.innerText = 'Termin buchen';
-      btn.onclick = () => {
-        const modal = document.createElement('div');
-        modal.style.position = 'fixed';
-        modal.style.inset = '0';
-        modal.style.background = 'rgba(0,0,0,0.5)';
-        modal.onclick = e => { if (e.target === modal) document.body.removeChild(modal); };
-
-        const frame = document.createElement('iframe');
-        frame.src = CONFIG.CALENDAR_URL;
-        frame.style.width = 'min(900px, 94vw)';
-        frame.style.height = 'min(90vh, 720px)';
-        frame.style.border = '0';
-        frame.style.background = '#fff';
-
-        const box = document.createElement('div');
-        box.style.position = 'absolute';
-        box.style.top = '50%';
-        box.style.left = '50%';
-        box.style.transform = 'translate(-50%, -50%)';
-        box.style.borderRadius = '12px';
-        box.style.overflow = 'hidden';
-        box.appendChild(frame);
-
-        modal.appendChild(box);
-        document.body.appendChild(modal);
-      };
-
-      ctaWrap.appendChild(btn);
-      if (chatLog) chatLog.appendChild(ctaWrap);
-    }
-  }, 400);
+  // ❌ (Dihapus) auto-pesan/CTA setelah timeline; sekarang ditangani oleh onTimelineSelected() di index.html
 }
 
 // ========================
