@@ -256,9 +256,14 @@ if (form) {
       let finalReply = null;
 
       // gunakan AIGuard jika tersedia
+      let usedGuard = false;
       if (window.AIGuard && typeof AIGuard.ask === "function") {
         const ai = await AIGuard.ask(question, selectedLang);
-        finalReply = (ai && ai.text) ? ai.text : null;
+        if (ai && ai.text) {
+          finalReply = ai.text;
+          usedGuard = true;
+          track('ai_answer', { from: 'guard', lang: selectedLang, q_len: question.length }); // gated
+        }
       }
 
       // fallback ke /chat
@@ -272,6 +277,10 @@ if (form) {
         const replyRaw = data.answer ?? data.reply;
         const reply = (typeof replyRaw === "string" ? replyRaw.trim() : "");
         finalReply = reply || I18N.unsure[selectedLang];
+
+        if (!usedGuard) {
+          track('ai_fallback', { to: 'backend_chat', lang: selectedLang, q_len: question.length }); // gated
+        }
       }
 
       if (typingBubble) typingBubble.style.display = "none";
@@ -440,7 +449,7 @@ function showProductOptions() {
 
   if (chatLog) {
     chatLog.appendChild(container);
-  chatLog.scrollTop = chatLog.scrollHeight;
+    chatLog.scrollTop = chatLog.scrollHeight;
   }
 }
 
@@ -449,6 +458,87 @@ function showProductOptions() {
 // ========================
 function handleProductSelection(key) {
   startFunnel(key);
+}
+
+// ==== ADD: helpers summary & express ====
+function _kv(key, val){ return val == null || val === '' ? null : `<li><b>${key}:</b> ${val}</li>`; }
+
+function renderSummaryCard() {
+  const d = Funnel.state.data || {};
+  const lang = (langSwitcher && langSwitcher.value) || "de";
+  const title = lang === "de" ? "Zusammenfassung" : "Summary";
+
+  const items = [
+    _kv("Produkt", Funnel.state.productLabel),
+    _kv("PLZ", d.plz),
+    _kv("Ort", d.ort),
+    _kv("Gebäudetyp", d.prop_type),
+    _kv("Dachform", d.dachform),
+    _kv("Dachfläche (m²)", d.area_sqm),
+    _kv("Ausrichtung", d.orientation),
+    _kv("Neigungswinkel (°)", d.neigung_deg),
+    _kv("Verschattung", d.verschattung),
+    _kv("Batteriespeicher", d.batterie_ja === true ? "Ja" : (d.batterie_ja === false ? "Nein" : "")),
+    _kv("Kapazität (kWh)", d.batterie_kwh),
+    _kv("Jahresverbrauch (kWh)", d.consumption_kwh)
+  ].filter(Boolean).join("");
+
+  const box = document.createElement("div");
+  box.className = "chatbot-message bot-message";
+  box.innerHTML = `
+    <div style="font-weight:700;margin-bottom:6px;">${title}</div>
+    <ul style="margin:0 0 8px 16px;line-height:1.4;">${items}</ul>
+    <div class="quick-group">
+      <button class="quick-btn" id="sum-continue">${lang==="de"?"Weiter":"Continue"}</button>
+      <a class="cta-button" href="https://planville.de/kontakt" target="_blank" rel="noopener">
+        ${lang==="de"?"Jetzt buchen":"Contact us"}
+      </a>
+    </div>
+  `;
+  chatLog.appendChild(box);
+  chatLog.scrollTop = chatLog.scrollHeight;
+
+  // events
+  track('summary_view', { product: Funnel.state.product, has_plz: !!d.plz });
+
+  document.getElementById("sum-continue").onclick = () => {
+    askContact(); // lanjut ke timeline -> form kontak
+  };
+}
+
+function maybeRenderExpressCTA() {
+  // flag A/B: tampilkan tombol Express setelah PLZ terisi (hide on variant B)
+  const showExpress = (localStorage.getItem('ab_variant') || 'A') !== 'B';
+  if (!showExpress) return;
+  const d = Funnel.state.data || {};
+  if (!d.plz) return;
+
+  const lang = (langSwitcher && langSwitcher.value) || "de";
+  const wrap = document.createElement("div");
+  wrap.className = "chatbot-message bot-message";
+  wrap.innerHTML = `
+    <div style="margin-bottom:6px;">${lang==="de"
+      ? "Möchtest du direkt zur Beratung springen? Wir benötigen nur PLZ & Kontakt."
+      : "Want to skip to consultation? We only need your ZIP & contact."}
+    </div>
+    <div class="quick-group">
+      <button type="button" id="express-btn" class="quick-btn">
+        ${lang==="de" ? "Direkt zur Beratung" : "Skip to consultation"}
+      </button>
+    </div>
+  `;
+  chatLog.appendChild(wrap);
+  chatLog.scrollTop = chatLog.scrollHeight;
+
+  document.getElementById("express-btn").onclick = () => {
+    track('consult_skip', { product: Funnel.state.product, plz: d.plz });
+    // minimal qualification: keep current answers incl. plz/ort
+    const q = Object.assign({}, d);
+    if (typeof injectLeadContactFormChat === "function") {
+      injectLeadContactFormChat(Funnel.state.productLabel, q);
+      appendMessage(I18N.askContactDone(lang), "bot");
+    }
+  };
 }
 
 // ========================
@@ -529,8 +619,8 @@ function injectLeadMiniForm() {
 // 🚦 Conversational Funnel (Multi-Product)
 // ========================
 const Funnel = {
-  state: { product: null, productLabel: null, step: 0, data: {}, progressMax: 8 },
-  reset() { this.state = { product: null, productLabel: null, step: 0, data: {}, progressMax: 8 }; },
+  state: { product: null, productLabel: null, step: 0, data: {}, progressMax: 14 },
+  reset() { this.state = { product: null, productLabel: null, step: 0, data: {}, progressMax: 14 }; },
   progress(percent) {
     let bar = document.getElementById('funnel-progress-bar');
     if (!bar) {
@@ -559,6 +649,10 @@ function startFunnel(productKey) {
   const label = productLabels[productKey][lang] || productKey;
   Funnel.state.productLabel = label;
   appendMessage(label, 'user');
+
+  // if somehow PLZ already known in session, you can surface express quickly
+  if (Funnel.state.data && Funnel.state.data.plz) maybeRenderExpressCTA();
+
   askNext();
 }
 
@@ -646,6 +740,7 @@ function exitWith(reason) {
     chatLog.scrollTop = chatLog.scrollHeight;
   }
 
+  // kirim disqualified lead pakai helper standar (index.html)
   if (typeof window.sendDisqualifiedLead === "function") {
     window.sendDisqualifiedLead(reason);
   }
@@ -691,38 +786,67 @@ function askNext() {
 
   // ==== Branching per product ====
   if (p === 'pv') {
-    if (s === 2) return askQuick('Welcher Gebäudetyp?', [
+    // PV lengkap: PLZ → Ort → Gebäudetyp → Dachform → Fläche → Ausrichtung → Neigung → Verschattung → Batterie(+kWh) → Verbrauch → Summary → Timeline/Contact
+    if (s === 2) return askInput('PLZ (5-stellig)?', 'plz', v => /^\d{5}$/.test(v));
+    if (s === 3) { maybeRenderExpressCTA(); return askInput('Ort?', 'ort', v => (v||'').length >= 2); }
+    if (s === 4) return askQuick('Welcher Gebäudetyp?', [
       { label: 'Einfamilienhaus', value: 'einfamilienhaus' },
       { label: 'Mehrfamilienhaus', value: 'mehrfamilienhaus' },
-      { label: 'Gewerbe', value: 'gewerbe' }
+      { label: 'Gewerbe', value: 'gewerbe' },
+      { label: 'Reihenhaus', value: 'reihenhaus' },
+      { label: 'Doppelhaushälfte', value: 'doppelhaushälfte' }
     ], 'prop_type');
 
-    if (s === 3) return askQuick('Bauform (EFH)?', [
-      { label: 'Freistehend', value: 'freistehend' },
-      { label: 'Doppelhaushälfte', value: 'doppelhaus' },
-      { label: 'Reihenhaus', value: 'reihenhaus' }
-    ], 'sub_type');
+    if (s === 5) return askQuick('Dachform?', [
+      { label: 'Satteldach', value: 'satteldach' },
+      { label: 'Walmdach', value: 'walmdach' },
+      { label: 'Flachdach', value: 'flachdach' },
+      { label: 'Pultdach', value: 'pultdach' },
+      { label: 'Sonstiges', value: 'sonstiges' }
+    ], 'dachform');
 
-    if (s === 4) return askInput('Wie groß ist die Dachfläche (m²) ca.?', 'area_sqm', v => /^[0-9]+(\.[0-9]+)?$/.test(v));
+    if (s === 6) return askInput('Dachfläche (m²) ca.?', 'area_sqm', v => /^[0-9]+(\.[0-9]+)?$/.test(v));
 
-    if (s === 5) {
+    if (s === 7) {
       const area = parseFloat(Funnel.state.data.area_sqm || 0);
       if (area && area < 10) return exitWith('dachfläche_zu_klein');
       return askQuick('Dachausrichtung?', [
-        { label: 'Süd', value: 'sued' }, { label: 'West', value: 'west' },
-        { label: 'Ost', value: 'ost' },  { label: 'Nord', value: 'nord' },
-        { label: 'Kombination', value: 'kombination' }
+        { label: 'Süd', value: 'sued' }, { label: 'Süd-Ost', value: 'sued-ost' },
+        { label: 'Süd-West', value: 'sued-west' }, { label: 'Ost', value: 'ost' },
+        { label: 'West', value: 'west' }, { label: 'Nord', value: 'nord' },
+        { label: 'Gemischt', value: 'gemischt' }
       ], 'orientation');
     }
 
-    if (s === 6) return askInput('Jahresstromverbrauch (kWh)?', 'consumption_kwh', v => /^[0-9]{3,6}$/.test(v));
-    if (s === 7) return askQuick('Zusatzoptionen?', [
-      { label: 'Speicher', value: 'speicher' },
-      { label: 'Wallbox', value: 'wallbox' },
-      { label: 'Keine', value: 'none' }
-    ], 'addons');
+    if (s === 8) return askInput('Neigungswinkel (°)?', 'neigung_deg', v => {
+      const n = parseFloat(v); return !isNaN(n) && n >= 0 && n <= 90;
+    });
 
-    if (s === 8) return askContact();
+    if (s === 9) return askQuick('Verschattung?', [
+      { label: 'Keine', value: 'keine' },
+      { label: 'Leicht', value: 'leicht' },
+      { label: 'Mittel', value: 'mittel' },
+      { label: 'Stark', value: 'stark' }
+    ], 'verschattung');
+
+    if (s === 10) return askQuick('Batteriespeicher?', [
+      { label: 'Ja', value: true },
+      { label: 'Nein', value: false }
+    ], 'batterie_ja');
+
+    if (s === 11) {
+      if (Funnel.state.data.batterie_ja === true && !Funnel.state.data.batterie_kwh) {
+        return askInput('Kapazität Batterie (kWh)?', 'batterie_kwh', v => /^[0-9]+(\.[0-9]+)?$/.test(v));
+      }
+      return askNext();
+    }
+
+    if (s === 12) return askInput('Jahresstromverbrauch (kWh)?', 'consumption_kwh', v => /^[0-9]{3,6}$/.test(v));
+
+    if (s === 13) {
+      // Summary sebelum minta timeline/contact
+      return renderSummaryCard();
+    }
   }
 
   if (p === 'roof') {
