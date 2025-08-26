@@ -6,7 +6,7 @@
   <title>Planville AI Chatbot</title>
   <link rel="stylesheet" href="style.css" />
 
-  <!-- ===== Global Config + API URL helper (PASTIKAN DOMAINNYA BENAR) ===== -->
+  <!-- ===== Global Config + API URL helper ===== -->
   <script>
     // GANTI ke domain backend Railway kamu (disamakan satu sumber)
     window.CONFIG = {
@@ -20,7 +20,7 @@
       return base ? `${base}${p}` : p;
     }
 
-    // (Opsional, tapi praktis) Rewriter: arahkan panggilan relatif ke backend
+    // Rewriter: arahkan panggilan relatif ke backend (endpoints yang kita pakai)
     (function patchFetch(){
       const orig = window.fetch;
       window.fetch = function(input, init){
@@ -42,7 +42,7 @@
       };
     })();
 
-    // Helper kecil
+    // Helpers
     function getLang(){ try { return document.getElementById("langSwitcher").value || "de"; } catch(_) { return "de"; } }
     function sessionId(){
       let s = localStorage.getItem("session_id");
@@ -106,7 +106,7 @@
       </select>
     </div>
 
-    <!-- CTA mulai konfigurator (dipakai oleh onload listener) -->
+    <!-- CTA mulai konfigurator -->
     <button id="startConfigBtn" type="button" class="cta-button">Jetzt starten</button>
   </div>
 
@@ -172,7 +172,7 @@
   </div>
 
   <!-- ⚙️ AI Q&A ringan + Chatbot -->
-  <!-- FIX: file ini ada di root, bukan /js -->
+  <!-- FIX: file ini di root, bukan /js -->
   <script defer src="ai_guardrails_vlite.js"></script>
   <script defer src="chatbot.js"></script>
 
@@ -308,7 +308,7 @@
       alert("Einstellungsseite ist noch in Entwicklung.");
     }
 
-    /* ---------- Lead → Backend (/lead)  (D) ---------- */
+    /* ---------- Lead → Backend (/lead) ---------- */
     async function sendLeadToBackend({productLabel, name, address, email, phone, origin, qualification}) {
       const lang = getLang();
       const product = mapProduct(productLabel);
@@ -397,7 +397,7 @@
       });
     }
 
-    /* ---------- Dipanggil saat user memilih timeline (E) ---------- */
+    /* ---------- Dipanggil saat user memilih timeline ---------- */
     window.onTimelineSelected = function(timelineValue){
       const lang = getLang();
 
@@ -421,7 +421,7 @@
       trackFE("contact_open", { product: mapProduct(productLabel), timeline: timelineValue });
     };
 
-    /* ---------- Kirim lead disqualified (owner/bewohner gate) (E) ---------- */
+    /* ---------- Kirim lead disqualified ---------- */
     window.sendDisqualifiedLead = function(reason){
       const lang = getLang();
       const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
@@ -480,7 +480,7 @@
     }
     window.submitLead = submitLead;
 
-    /* ---------- Konfigurator (simple) -> kirim ke backend kamu ---------- */
+    /* ---------- Konfigurator (simple) ---------- */
     async function sendConfigSimple() {
       const productLabel = document.getElementById("productSelect").value;
       const vorname = document.getElementById("vorname").value.trim();
@@ -542,11 +542,7 @@
       const submitCfg = document.getElementById("submitConfig");
       if (submitCfg) submitCfg.addEventListener("click", sendConfigSimple);
 
-      // Initial greeting (pakai showProductOptions dari chatbot.js)
-      setTimeout(() => {
-        appendMessage?.("Hallo! 👋 Was kann ich für Sie tun?<br>Bitte wählen Sie ein Thema:", "bot");
-        showProductOptions?.();
-      }, 800);
+      // NOTE: Greeting & product chips sekarang ditangani oleh chatbot.js (hindari double greeting di sini)
     };
   </script>
 </body>
