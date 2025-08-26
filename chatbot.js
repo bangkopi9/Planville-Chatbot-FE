@@ -5,7 +5,7 @@ function _baseURL() {
   try {
     let b = (typeof CONFIG !== "undefined" && CONFIG.BASE_API_URL) ? CONFIG.BASE_API_URL.trim() : "";
     if (!b) return "";
-    if (!/^https?:\/\//i.test(b)) b = "https://" + b; // auto add scheme
+    if (!/^https?:\/\//i.test(b)) b = "https://" + b;
     return b.endsWith("/") ? b.slice(0, -1) : b;
   } catch (e) { return ""; }
 }
@@ -31,10 +31,8 @@ function _allowAnalytics(){ return !!_getConsentState().analytics; }
 // gated track wrapper (akan pakai window.trackFE kalau ada)
 function track(eventName, props = {}, { essential = false } = {}) {
   if (typeof window.trackFE === "function") {
-    // index.html gate + push + POST
     return window.trackFE(eventName, props, { essential });
   }
-  // fallback minimal
   if (!essential && !_allowAnalytics()) return;
   try {
     window.dataLayer = window.dataLayer || [];
@@ -134,7 +132,7 @@ const pvBalloon = document.querySelector(".pv-balloon span");
 // 🧠 Load Chat History
 // ========================
 let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
-let chatStarted = false; // start chat only after robot clicked
+let chatStarted = false;
 
 function loadChatHistory() {
   chatHistory.forEach(entry => appendMessage(entry.message, entry.sender, false));
@@ -147,14 +145,11 @@ window.addEventListener("load", () => {
   const selectedLang = localStorage.getItem("selectedLang") || (CONFIG.LANG_DEFAULT || "de");
   if (langSwitcher) langSwitcher.value = selectedLang;
 
-  // Set initial robot balloon text to selected language
   if (pvBalloon) pvBalloon.textContent = I18N.robotBalloon[selectedLang];
 
-  // Sidebar FAQ + header (chat UI stays hidden until robot is clicked)
   updateFAQ(selectedLang);
   updateHeaderOnly(selectedLang);
 
-  // Cookie consent
   const consent = localStorage.getItem("cookieConsent");
   if (!consent) {
     const banner = document.getElementById("cookie-banner");
@@ -163,12 +158,10 @@ window.addEventListener("load", () => {
     if (typeof enableGTM === "function") enableGTM();
   }
 
-  // (Jika ingin chat muncul langsung, aktifkan dua baris di bawah)
   showChatArea();
   chatStarted = true;
   startGreetingFlow();
 
-  // Hero click to start chat
   if (pvHero) {
     pvHero.style.cursor = "pointer";
     pvHero.addEventListener("click", () => {
@@ -190,12 +183,12 @@ function hideChatArea() {
   const container = document.querySelector(".chatbot-container");
   const sidebar = document.querySelector(".faq-sidebar");
   if (container) container.style.display = "none";
-  if (sidebar) sidebar.style.display = ""; // FAQ tetap tampil; set "none" kalau mau disembunyikan juga
+  if (sidebar) sidebar.style.display = "";
 }
 function showChatArea() {
   const container = document.querySelector(".chatbot-container");
   if (container) container.style.display = "flex";
-  if (pvHero) pvHero.style.display = "none"; // sembunyikan hero setelah diklik
+  if (pvHero) pvHero.style.display = "none";
 }
 
 // ========================
@@ -217,19 +210,16 @@ if (langSwitcher) {
     const lang = langSwitcher.value;
     localStorage.setItem("selectedLang", lang);
 
-    // Update robot balloon immediately
     if (pvBalloon) pvBalloon.textContent = I18N.robotBalloon[lang];
 
-    // Update FAQ + header (greeting only if chat started)
     updateFAQ(lang);
     if (chatStarted) {
-      updateUITexts(lang); // reset chat & greet
+      updateUITexts(lang);
     } else {
-      updateHeaderOnly(lang); // only header text before chat starts
+      updateHeaderOnly(lang);
     }
 
-    // gated analytics
-    track('language_switch', { lang });
+    track('language_switch', { lang }); // gated
   });
 }
 
@@ -243,7 +233,7 @@ if (form) {
     if (!chatStarted) {
       chatStarted = true;
       showChatArea();
-      startGreetingFlow(false); // don't re-append greeting if user already typing
+      startGreetingFlow(false);
     }
 
     const question = (input.value || "").trim();
@@ -265,15 +255,15 @@ if (form) {
     try {
       let finalReply = null;
 
-      // gunakan AIGuard jika tersedia (ai_guardrails_vlite.js)
+      // gunakan AIGuard jika tersedia
       if (window.AIGuard && typeof AIGuard.ask === "function") {
         const ai = await AIGuard.ask(question, selectedLang);
         finalReply = (ai && ai.text) ? ai.text : null;
       }
 
-      // fallback ke /chat jika AIGuard tidak ada / gagal
+      // fallback ke /chat
       if (!finalReply) {
-        const res = await fetch(`${_baseURL()}/chat`, {
+        const res = await fetch(_api('/chat'), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: question, lang: selectedLang })
@@ -288,10 +278,8 @@ if (form) {
       appendMessage(finalReply, "bot");
       saveToHistory("bot", finalReply);
 
-      // gated analytics
-      track('chat_message', { q_len: question.length, lang: selectedLang });
-      
-      // lanjutkan funnel kalau lagi aktif & tidak ada pertanyaan terbuka
+      track('chat_message', { q_len: question.length, lang: selectedLang }); // gated
+
       if (window.AIGuard && typeof AIGuard.maybeContinueFunnel === "function") {
         AIGuard.maybeContinueFunnel();
       }
@@ -307,8 +295,7 @@ if (form) {
 // ========================
 function startGreetingFlow(withProducts = true) {
   const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
-  // Header + chat greeting
-  updateUITexts(lang); // resets chat & adds greeting + product options
+  updateUITexts(lang);
   if (!withProducts) {
     const productBlock = document.getElementById("product-options-block");
     if (productBlock) productBlock.remove();
@@ -339,7 +326,6 @@ function appendMessage(msg, sender, scroll = true) {
     `;
     msgDiv.appendChild(feedback);
 
-    // CTA only jika pesan cukup panjang
     const plain = (msg || "").replace(/<[^>]*>/g, "");
     if (plain.length > 100) {
       const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
@@ -419,7 +405,6 @@ function updateUITexts(lang) {
   const h = document.querySelector('.chatbot-header h1');
   if (h) h.innerText = I18N.header[lang];
 
-  // Full reset + greeting
   resetChat();
   appendMessage(I18N.greeting[lang], "bot");
   showProductOptions();
@@ -446,7 +431,6 @@ function showProductOptions() {
     button.className = "product-button";
     button.dataset.key = key;
     button.onclick = () => {
-      // mark selected
       document.querySelectorAll('.product-button.selected').forEach(b => b.classList.remove('selected'));
       button.classList.add('selected');
       handleProductSelection(key);
@@ -456,7 +440,7 @@ function showProductOptions() {
 
   if (chatLog) {
     chatLog.appendChild(container);
-    chatLog.scrollTop = chatLog.scrollHeight;
+  chatLog.scrollTop = chatLog.scrollHeight;
   }
 }
 
@@ -572,8 +556,8 @@ function startFunnel(productKey) {
   Funnel.state.product = productKey;
 
   const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
-  const label = productLabels[productKey][lang] || productKey; // keep label
-  Funnel.state.productLabel = label; // simpan label untuk payload
+  const label = productLabels[productKey][lang] || productKey;
+  Funnel.state.productLabel = label;
   appendMessage(label, 'user');
   askNext();
 }
@@ -593,13 +577,12 @@ function askQuick(text, options, fieldKey) {
       appendMessage(opt.label, 'user');
       Funnel.state.data[fieldKey] = opt.value;
 
-      // end funnel on 'timeline' → show mini contact form (index.html)
       if (fieldKey === 'timeline') {
         if (typeof window.onTimelineSelected === "function") {
           window.onTimelineSelected(opt.value);
         }
         group.remove();
-        return; // stop auto-continue; contact form is the last step
+        return;
       }
 
       askNext();
@@ -663,7 +646,6 @@ function exitWith(reason) {
     chatLog.scrollTop = chatLog.scrollHeight;
   }
 
-  // kirim disqualified lead pakai helper standar (index.html)
   if (typeof window.sendDisqualifiedLead === "function") {
     window.sendDisqualifiedLead(reason);
   }
@@ -678,7 +660,7 @@ function askNext() {
 
   // ==== A/B Gate Order ====
   const ABv = localStorage.getItem('ab_variant') || 'A';
-  const gateFirst = (ABv === 'B') ? 'occupant' : 'owner'; // A: owner->occupant, B: occupant->owner
+  const gateFirst = (ABv === 'B') ? 'occupant' : 'owner';
 
   if (s === 0) {
     if (gateFirst === 'owner') {
@@ -827,13 +809,11 @@ window.askNext = askNext; // expose for AIGuard.maybeContinueFunnel
 // 📇 Contact + CRM submit
 // ------------------------
 function askContact() {
-  // Hanya ajukan timeline; mini-form kontak muncul saat opsi timeline dipilih (lihat hook di askQuick)
   askQuick(T('timeline_q'), [
     { label: '0–3 Monate',  value: '0-3'  },
     { label: '3–6 Monate',  value: '3-6'  },
     { label: '6–12 Monate', value: '6-12' }
   ], 'timeline');
-  // (Auto-CTA setelah timeline dipindah ke onTimelineSelected di index.html)
 }
 
 // ========================
