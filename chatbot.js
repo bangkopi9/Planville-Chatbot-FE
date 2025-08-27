@@ -274,6 +274,13 @@ if (form) {
 
       if (window.AIGuard && typeof AIGuard.ask === "function") {
         const ai = await AIGuard.ask(question, selectedLang);
+
+        // ← penting: kalau sudah 10 tektokan, AIGuard mengembalikan {stop:true}
+        if (ai && ai.stop) {
+          if (typingBubble) typingBubble.style.display = "none";
+          return; // jangan fallback ke /chat; AIGuard sudah munculkan pesan + langkah timeline
+        }
+
         finalReply = (ai && ai.text) ? ai.text : null;
       }
 
@@ -338,9 +345,7 @@ function appendMessage(msg, sender, scroll = true) {
       <button onclick="feedbackClick('down')" aria-label="thumbs down">👎</button>
     `;
     msgDiv.appendChild(feedback);
-
-    // NOTE: kita TIDAK menambah CTA di sini secara paksa (biarkan default)
-    // CTA "Jetzt buchen" setelah form sudah dihapus di index.html
+    // Tidak menambahkan CTA "Jetzt buchen" otomatis di sini (sudah dihapus sesuai revisi)
   }
 
   chatLog.appendChild(msgDiv);
@@ -577,6 +582,9 @@ function startFunnel(productKey) {
   Funnel.reset();
   Funnel.state.product = productKey;
 
+  // reset counter Q/A di guard supaya sesi fresh
+  if (window.AIGuard && typeof AIGuard.reset === "function") AIGuard.reset();
+
   const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
   const label = productLabels[productKey][lang] || productKey;
   Funnel.state.productLabel = label;
@@ -604,7 +612,7 @@ function askQuick(text, options, fieldKey) {
           window.onTimelineSelected(opt.value);
         }
         group.remove();
-        return; // stop here (summary + form will appear)
+        return; // stop here (summary + form akan muncul via onTimelineSelected)
       }
 
       askNext();
@@ -617,6 +625,16 @@ function askQuick(text, options, fieldKey) {
     chatLog.appendChild(group);
     chatLog.scrollTop = chatLog.scrollHeight;
   }
+}
+
+// Optional helper: tanya timeline langsung (agar kompatibel dengan AIGuard)
+function askContact() {
+  const lang = (langSwitcher && langSwitcher.value) || "de";
+  const opts = (lang==="de"
+    ? ['0–3 Monate','3–6 Monate','6–12 Monate']
+    : ['0–3 months','3–6 months','6–12 months'])
+    .map((t,i)=>({label:t, value:(i===0?'0-3':i===1?'3-6':'6-12')}));
+  askQuick(Q.timeline_q[lang], opts, 'timeline');
 }
 
 function askInput(text, fieldKey, validator) {
@@ -681,7 +699,7 @@ function askNext() {
 
   Funnel.progressByFields();
 
-  // Gates (AB order handled not needed; we go by presence)
+  // Gates
   if (d.owner === undefined) {
     return askQuick(Q.owner_q[lang], [{label: (lang==="de"?"Ja":"Yes"), value:true}, {label:(lang==="de"?"Nein":"No"), value:false}], 'owner');
   }
@@ -692,7 +710,7 @@ function askNext() {
   }
   if (p !== 'tenant' && d.occupant === false) return exitWith('nicht_bewohnt');
 
-  // Ort → PLZ (NEW)
+  // Ort → PLZ
   if (d.city === undefined) {
     return askInput(Q.city_q[lang], 'city', v => v.trim().length > 0);
   }
@@ -746,7 +764,7 @@ function askNext() {
       const opts = (lang==="de"
         ? ['0–3 Monate','3–6 Monate','6–12 Monate']
         : ['0–3 months','3–6 months','6–12 months']).map((t,i)=>({label:t, value:(i===0?'0-3':i===1?'3-6':'6-12')}));
-      return askQuick(Q.timeline_q[lang], opts, 'timeline'); // triggers summary + form
+      return askQuick(Q.timeline_q[lang], opts, 'timeline'); // will trigger summary+form
     }
     return; // done
   }
