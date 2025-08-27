@@ -9,12 +9,10 @@ function _baseURL() {
     return b.endsWith("/") ? b.slice(0, -1) : b;
   } catch (e) { return ""; }
 }
-// prefer apiURL from index.html if available
 function _api(path) {
   if (typeof apiURL === "function") return apiURL(path);
   return _baseURL() + path;
 }
-// consent helpers (fallback jika index.html belum define trackFE)
 function _getConsentState(){
   try {
     const raw = localStorage.getItem("consent_v1");
@@ -23,12 +21,10 @@ function _getConsentState(){
       return { essential: true, analytics: !!c.analytics, marketing: !!c.marketing, personalization: !!c.personalization };
     }
   } catch(_) {}
-  const simple = localStorage.getItem("cookieConsent"); // "accepted" | "rejected"
+  const simple = localStorage.getItem("cookieConsent");
   return { essential: true, analytics: simple === "accepted", marketing: false, personalization: false };
 }
 function _allowAnalytics(){ return !!_getConsentState().analytics; }
-
-// gated track wrapper (akan pakai window.trackFE kalau ada)
 function track(eventName, props = {}, { essential = false } = {}) {
   if (typeof window.trackFE === "function") {
     return window.trackFE(eventName, props, { essential });
@@ -49,7 +45,7 @@ function track(eventName, props = {}, { essential = false } = {}) {
 }
 
 // ========================
-// 🌍 i18n strings for UI
+// 🌍 i18n strings (UI)
 // ========================
 const I18N = {
   greeting: {
@@ -72,22 +68,45 @@ const I18N = {
     de: "Die Preise für Photovoltaik beginnen bei etwa 7.000€ bis 15.000€, abhängig von Größe & Standort. Für ein genaues Angebot:",
     en: "Prices for photovoltaics typically range from €7,000 to €15,000 depending on size & location. For an exact quote:"
   },
-  miniFormThanks: (lang, name, email) =>
-    lang === "de"
-      ? `Vielen Dank ${name}! Unser Team wird Sie bald unter ${email} kontaktieren 🙌`
-      : `Thank you ${name}! Our team will contact you soon at ${email} 🙌`,
   unsure: {
     de: `Ich bin mir nicht sicher. Bitte <a href="https://planville.de/kontakt" target="_blank" rel="noopener">📞 kontaktieren Sie unser Team hier</a>.`,
     en: `I'm not sure about that. Please <a href="https://planville.de/kontakt" target="_blank" rel="noopener">📞 contact our team here</a>.`
   },
-  followUp: (lang, label) =>
-    lang === "de"
-      ? `Was möchten Sie genau zu <b>${label}</b> wissen oder erreichen?`
-      : `What exactly would you like to know or achieve about <b>${label}</b>?`,
   askContactDone: (lang) =>
     lang === "de"
       ? "Danke! Unser Team meldet sich zeitnah. Möchtest du direkt einen Termin wählen?"
       : "Thanks! Our team will contact you soon. Would you like to pick a time now?"
+};
+
+// ====== i18n for questions/prompts (funnel) ======
+const Q = {
+  owner_q: { de: 'Bist du Eigentümer:in der Immobilie?', en: 'Are you the owner of the property?' },
+  occupy_q:{ de: 'Wohnst du selbst in der Immobilie?',    en: 'Do you live in the property yourself?' },
+
+  city_q:  { de: 'In welchem Ort befindet sich das Objekt?', en: 'In which city/town is the property located?' },
+  plz_q:   { de: 'Wie lautet die PLZ?',                     en: 'What is the ZIP code?' },
+
+  prop_type_q: { de: 'Welcher Gebäudetyp?', en:'What is the property type?' },
+  sub_type_q:  { de: 'Bauform (EFH)?',      en:'Construction subtype (detached/semi/row)?' },
+  roof_form_q: { de: 'Dachform?',           en:'Roof form?' },
+  area_q:      { de: 'Dachfläche (m²) ca.?',en:'Approx. roof area (m²)?' },
+  orient_q:    { de: 'Dachausrichtung?',    en:'Roof orientation?' },
+  pitch_q:     { de: 'Neigungswinkel (°)?', en:'Roof pitch (°)?' },
+  shade_q:     { de: 'Verschattung?',       en:'Shading?' },
+  cons_q:      { de: 'Jahresstromverbrauch (kWh)?', en:'Annual electricity usage (kWh)?' },
+  battery_q:   { de: 'Batteriespeicher?',   en:'Battery storage?' },
+  battery_k_q: { de: 'Kapazität Speicher (kWh)?', en:'Battery capacity (kWh)?' },
+  timeline_q:  { de: 'Wann möchtest du das Projekt starten?', en:'When would you like to start the project?' },
+
+  heatingType_q: { de:'Aktuelle Heizart?', en:'Current heating type?' },
+  living_area_q: { de:'Wohnfläche (m²)?',  en:'Living area (m²)?' },
+
+  issues_q: { de:'Gibt es Probleme?', en:'Any current issues?' },
+
+  disq_txt: { 
+    de:'Danke für dein Interesse! Aufgrund deiner Antworten können wir dir leider keine passende Dienstleistung anbieten. Schau aber gerne mal auf unserer Webseite vorbei!',
+    en:'Thanks for your interest! Based on your answers we currently have no matching service. Feel free to check our website!'
+  }
 };
 
 const productLabels = {
@@ -124,7 +143,6 @@ const toggle = document.getElementById("modeToggle");
 const typingBubble = document.getElementById("typing-bubble");
 const langSwitcher = document.getElementById("langSwitcher");
 
-// robot intro elements
 const pvHero = document.querySelector(".pv-hero");
 const pvBalloon = document.querySelector(".pv-balloon span");
 
@@ -219,7 +237,7 @@ if (langSwitcher) {
       updateHeaderOnly(lang);
     }
 
-    track('language_switch', { lang }); // gated
+    track('language_switch', { lang });
   });
 }
 
@@ -246,7 +264,6 @@ if (form) {
 
     if (typingBubble) typingBubble.style.display = "block";
 
-    // local intent
     if (detectIntent(question)) {
       if (typingBubble) typingBubble.style.display = "none";
       return;
@@ -255,18 +272,11 @@ if (form) {
     try {
       let finalReply = null;
 
-      // gunakan AIGuard jika tersedia
-      let usedGuard = false;
       if (window.AIGuard && typeof AIGuard.ask === "function") {
         const ai = await AIGuard.ask(question, selectedLang);
-        if (ai && ai.text) {
-          finalReply = ai.text;
-          usedGuard = true;
-          track('ai_answer', { from: 'guard', lang: selectedLang, q_len: question.length }); // gated
-        }
+        finalReply = (ai && ai.text) ? ai.text : null;
       }
 
-      // fallback ke /chat
       if (!finalReply) {
         const res = await fetch(_api('/chat'), {
           method: "POST",
@@ -277,17 +287,13 @@ if (form) {
         const replyRaw = data.answer ?? data.reply;
         const reply = (typeof replyRaw === "string" ? replyRaw.trim() : "");
         finalReply = reply || I18N.unsure[selectedLang];
-
-        if (!usedGuard) {
-          track('ai_fallback', { to: 'backend_chat', lang: selectedLang, q_len: question.length }); // gated
-        }
       }
 
       if (typingBubble) typingBubble.style.display = "none";
       appendMessage(finalReply, "bot");
       saveToHistory("bot", finalReply);
 
-      track('chat_message', { q_len: question.length, lang: selectedLang }); // gated
+      track('chat_message', { q_len: question.length, lang: selectedLang });
 
       if (window.AIGuard && typeof AIGuard.maybeContinueFunnel === "function") {
         AIGuard.maybeContinueFunnel();
@@ -310,8 +316,6 @@ function startGreetingFlow(withProducts = true) {
     if (productBlock) productBlock.remove();
   }
 }
-
-// Update header only (no reset)
 function updateHeaderOnly(lang) {
   const h = document.querySelector(".chatbot-header h1");
   if (h) h.innerText = I18N.header[lang];
@@ -335,17 +339,8 @@ function appendMessage(msg, sender, scroll = true) {
     `;
     msgDiv.appendChild(feedback);
 
-    const plain = (msg || "").replace(/<[^>]*>/g, "");
-    if (plain.length > 100) {
-      const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
-      const cta = document.createElement("a");
-      cta.href = "https://planville.de/kontakt/";
-      cta.target = "_blank";
-      cta.rel = "noopener";
-      cta.className = "cta-button";
-      cta.innerText = I18N.ctaBook[lang];
-      msgDiv.appendChild(cta);
-    }
+    // NOTE: kita TIDAK menambah CTA di sini secara paksa (biarkan default)
+    // CTA "Jetzt buchen" setelah form sudah dihapus di index.html
   }
 
   chatLog.appendChild(msgDiv);
@@ -387,16 +382,15 @@ function updateFAQ(lang) {
     li.addEventListener('click', () => {
       input.value = txt;
       form.dispatchEvent(new Event('submit'));
-      track('faq_click', { text: txt }); // gated
+      track('faq_click', { text: txt });
     });
     list.appendChild(li);
   });
 }
-
 function sendFAQ(text) {
   input.value = text;
   form.dispatchEvent(new Event("submit"));
-  track('faq_click', { text }); // gated
+  track('faq_click', { text });
 }
 
 // ========================
@@ -404,7 +398,7 @@ function sendFAQ(text) {
 // ========================
 function feedbackClick(type) {
   alert(type === "up" ? "Thanks for your feedback! 👍" : "We'll improve. 👎");
-  track('chat_feedback', { type }); // gated
+  track('chat_feedback', { type });
 }
 
 // ========================
@@ -460,94 +454,12 @@ function handleProductSelection(key) {
   startFunnel(key);
 }
 
-// ==== ADD: helpers summary & express ====
-function _kv(key, val){ return val == null || val === '' ? null : `<li><b>${key}:</b> ${val}</li>`; }
-
-function renderSummaryCard() {
-  const d = Funnel.state.data || {};
-  const lang = (langSwitcher && langSwitcher.value) || "de";
-  const title = lang === "de" ? "Zusammenfassung" : "Summary";
-
-  const items = [
-    _kv("Produkt", Funnel.state.productLabel),
-    _kv("PLZ", d.plz),
-    _kv("Ort", d.ort),
-    _kv("Gebäudetyp", d.prop_type),
-    _kv("Dachform", d.dachform),
-    _kv("Dachfläche (m²)", d.area_sqm),
-    _kv("Ausrichtung", d.orientation),
-    _kv("Neigungswinkel (°)", d.neigung_deg),
-    _kv("Verschattung", d.verschattung),
-    _kv("Batteriespeicher", d.batterie_ja === true ? "Ja" : (d.batterie_ja === false ? "Nein" : "")),
-    _kv("Kapazität (kWh)", d.batterie_kwh),
-    _kv("Jahresverbrauch (kWh)", d.consumption_kwh)
-  ].filter(Boolean).join("");
-
-  const box = document.createElement("div");
-  box.className = "chatbot-message bot-message";
-  box.innerHTML = `
-    <div style="font-weight:700;margin-bottom:6px;">${title}</div>
-    <ul style="margin:0 0 8px 16px;line-height:1.4;">${items}</ul>
-    <div class="quick-group">
-      <button class="quick-btn" id="sum-continue">${lang==="de"?"Weiter":"Continue"}</button>
-      <a class="cta-button" href="https://planville.de/kontakt" target="_blank" rel="noopener">
-        ${lang==="de"?"Jetzt buchen":"Contact us"}
-      </a>
-    </div>
-  `;
-  chatLog.appendChild(box);
-  chatLog.scrollTop = chatLog.scrollHeight;
-
-  // events
-  track('summary_view', { product: Funnel.state.product, has_plz: !!d.plz });
-
-  document.getElementById("sum-continue").onclick = () => {
-    askContact(); // lanjut ke timeline -> form kontak
-  };
-}
-
-function maybeRenderExpressCTA() {
-  // flag A/B: tampilkan tombol Express setelah PLZ terisi (hide on variant B)
-  const showExpress = (localStorage.getItem('ab_variant') || 'A') !== 'B';
-  if (!showExpress) return;
-  const d = Funnel.state.data || {};
-  if (!d.plz) return;
-
-  const lang = (langSwitcher && langSwitcher.value) || "de";
-  const wrap = document.createElement("div");
-  wrap.className = "chatbot-message bot-message";
-  wrap.innerHTML = `
-    <div style="margin-bottom:6px;">${lang==="de"
-      ? "Möchtest du direkt zur Beratung springen? Wir benötigen nur PLZ & Kontakt."
-      : "Want to skip to consultation? We only need your ZIP & contact."}
-    </div>
-    <div class="quick-group">
-      <button type="button" id="express-btn" class="quick-btn">
-        ${lang==="de" ? "Direkt zur Beratung" : "Skip to consultation"}
-      </button>
-    </div>
-  `;
-  chatLog.appendChild(wrap);
-  chatLog.scrollTop = chatLog.scrollHeight;
-
-  document.getElementById("express-btn").onclick = () => {
-    track('consult_skip', { product: Funnel.state.product, plz: d.plz });
-    // minimal qualification: keep current answers incl. plz/ort
-    const q = Object.assign({}, d);
-    if (typeof injectLeadContactFormChat === "function") {
-      injectLeadContactFormChat(Funnel.state.productLabel, q);
-      appendMessage(I18N.askContactDone(lang), "bot");
-    }
-  };
-}
-
 // ========================
 // 🎯 Intent Detection (simple)
 // ========================
 function detectIntent(text) {
   const lower = (text || "").toLowerCase();
 
-  // price intent
   if (lower.includes("harga") || lower.includes("kosten") || lower.includes("cost") || lower.includes("price")) {
     const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
     appendMessage(I18N.priceMsg[lang], "bot");
@@ -561,11 +473,10 @@ function detectIntent(text) {
 
     if (chatLog) chatLog.appendChild(cta);
 
-    track('intent_preisinfo', { text, language: lang }); // gated
+    track('intent_preisinfo', { text, language: lang });
     return true;
   }
 
-  // interested intent
   if (lower.includes("tertarik") || lower.includes("interested")) {
     const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
     appendMessage(lang === "de" ? "Super! Bitte füllen Sie dieses kurze Formular aus:" : "Great! Please fill out this short form:", "bot");
@@ -577,7 +488,7 @@ function detectIntent(text) {
 }
 
 // ========================
-// 🧾 Mini Lead Form
+// 🧾 Mini Lead Form (quick)
 // ========================
 function injectLeadMiniForm() {
   const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
@@ -610,17 +521,38 @@ function injectLeadMiniForm() {
       return;
     }
 
-    appendMessage(I18N.miniFormThanks(lang, name, email), "bot");
-    track('mini_form_submit', { email }); // gated
+    appendMessage(
+      (lang === "de"
+        ? `Vielen Dank ${name}! Unser Team wird Sie bald unter ${email} kontaktieren 🙌`
+        : `Thank you ${name}! Our team will contact you soon at ${email} 🙌`)
+      , "bot"
+    );
+    track('mini_form_submit', { email });
   });
 }
 
 // ========================
-// 🚦 Conversational Funnel (Multi-Product)
+// 🚦 Conversational Funnel (state-machine by missing field)
 // ========================
 const Funnel = {
-  state: { product: null, productLabel: null, step: 0, data: {}, progressMax: 14 },
-  reset() { this.state = { product: null, productLabel: null, step: 0, data: {}, progressMax: 14 }; },
+  state: { product: null, productLabel: null, step: 0, data: {}, progressMax: 12 },
+  reset() { this.state = { product: null, productLabel: null, step: 0, data: {}, progressMax: 12 }; },
+  progressByFields() {
+    const d = this.state.data || {};
+    const p = this.state.product;
+
+    const common = ['owner', ...(p!=='tenant' ? ['occupant'] : []), 'city', 'plz'];
+    let productFields = [];
+    if (p==='pv') productFields = ['prop_type','roof_form','area_sqm','orientation','neigung_deg','verschattung','consumption_kwh','battery_jn','battery_kwh','timeline'];
+    if (p==='roof') productFields = ['prop_type','material','issues','area_sqm','addons','timeline'];
+    if (p==='heatpump') productFields = ['prop_type','heatingType','living_area','pv_combo','timeline'];
+    if (p==='tenant') productFields = ['prop_type','units','owner2','interest','timeline'];
+
+    const needed = [...common, ...productFields];
+    const answered = needed.filter(k => d[k] !== undefined && d[k] !== null).length;
+    const percent = Math.min(100, Math.round((answered/needed.length)*100));
+    this.progress(percent);
+  },
   progress(percent) {
     let bar = document.getElementById('funnel-progress-bar');
     if (!bar) {
@@ -638,7 +570,7 @@ const Funnel = {
     });
   }
 };
-window.Funnel = Funnel; // expose for other modules
+window.Funnel = Funnel;
 
 function startFunnel(productKey) {
   track('funnel.start', { product: productKey });
@@ -649,10 +581,6 @@ function startFunnel(productKey) {
   const label = productLabels[productKey][lang] || productKey;
   Funnel.state.productLabel = label;
   appendMessage(label, 'user');
-
-  // if somehow PLZ already known in session, you can surface express quickly
-  if (Funnel.state.data && Funnel.state.data.plz) maybeRenderExpressCTA();
-
   askNext();
 }
 
@@ -676,7 +604,7 @@ function askQuick(text, options, fieldKey) {
           window.onTimelineSelected(opt.value);
         }
         group.remove();
-        return;
+        return; // stop here (summary + form will appear)
       }
 
       askNext();
@@ -727,11 +655,12 @@ function askInput(text, fieldKey, validator) {
 }
 
 function exitWith(reason) {
+  const lang = (langSwitcher && langSwitcher.value) || "de";
   track('lead.exit', { product: Funnel.state.product, reason });
   Funnel.state.data.qualified = false;
   Funnel.state.data.disqualifyReason = reason;
 
-  const txt = 'Danke für dein Interesse! Aufgrund deiner Antworten können wir dir leider keine passende Dienstleistung anbieten. Schau aber gerne mal auf unserer Webseite vorbei!';
+  const txt = Q.disq_txt[lang];
   const div = document.createElement('div');
   div.className = 'exit-bubble';
   div.innerText = txt;
@@ -739,224 +668,184 @@ function exitWith(reason) {
     chatLog.appendChild(div);
     chatLog.scrollTop = chatLog.scrollHeight;
   }
-
-  // kirim disqualified lead pakai helper standar (index.html)
   if (typeof window.sendDisqualifiedLead === "function") {
     window.sendDisqualifiedLead(reason);
   }
 }
 
+// Core "next unanswered field" flow
 function askNext() {
+  const lang = (langSwitcher && langSwitcher.value) || "de";
   const p = Funnel.state.product;
-  const s = Funnel.state.step++;
+  const d = Funnel.state.data;
 
-  track('funnel.step', { product: p, step: Funnel.state.step });
-  Funnel.progress(((s) / Funnel.state.progressMax) * 100);
+  Funnel.progressByFields();
 
-  // ==== A/B Gate Order ====
-  const ABv = localStorage.getItem('ab_variant') || 'A';
-  const gateFirst = (ABv === 'B') ? 'occupant' : 'owner';
+  // Gates (AB order handled not needed; we go by presence)
+  if (d.owner === undefined) {
+    return askQuick(Q.owner_q[lang], [{label: (lang==="de"?"Ja":"Yes"), value:true}, {label:(lang==="de"?"Nein":"No"), value:false}], 'owner');
+  }
+  if (d.owner === false) return exitWith('kein_eigentümer');
 
-  if (s === 0) {
-    if (gateFirst === 'owner') {
-      return askQuick(T('owner_q'), [{ label: 'Ja', value: true }, { label: 'Nein', value: false }], 'owner');
-    } else {
-      return askQuick(T('occupy_q'), [{ label: 'Ja', value: true }, { label: 'Nein', value: false }], 'occupant');
-    }
+  if (p !== 'tenant' && d.occupant === undefined) {
+    return askQuick(Q.occupy_q[lang], [{label: (lang==="de"?"Ja":"Yes"), value:true}, {label:(lang==="de"?"Nein":"No"), value:false}], 'occupant');
+  }
+  if (p !== 'tenant' && d.occupant === false) return exitWith('nicht_bewohnt');
+
+  // Ort → PLZ (NEW)
+  if (d.city === undefined) {
+    return askInput(Q.city_q[lang], 'city', v => v.trim().length > 0);
+  }
+  if (d.plz === undefined) {
+    return askInput(Q.plz_q[lang], 'plz', v => v.trim().length > 0);
   }
 
-  if (s === 1) {
-    if (gateFirst === 'owner') {
-      if (Funnel.state.data.owner === false) return exitWith('kein_eigentümer');
-      return askQuick(T('occupy_q'), [{ label: 'Ja', value: true }, { label: 'Nein', value: false }], 'occupant');
-    } else {
-      if (Funnel.state.data.occupant === false && p !== 'tenant') return exitWith('nicht_bewohnt');
-      return askQuick(T('owner_q'), [{ label: 'Ja', value: true }, { label: 'Nein', value: false }], 'owner');
-    }
-  }
-
-  if (s === 2) {
-    if (gateFirst === 'owner') {
-      if (Funnel.state.data.occupant === false && p !== 'tenant') return exitWith('nicht_bewohnt');
-    } else {
-      if (Funnel.state.data.owner === false) return exitWith('kein_eigentümer');
-    }
-    // lanjut ke pertanyaan produk-spesifik
-  }
-
-  // ==== Branching per product ====
+  // Product-specific
   if (p === 'pv') {
-    // PV lengkap: PLZ → Ort → Gebäudetyp → Dachform → Fläche → Ausrichtung → Neigung → Verschattung → Batterie(+kWh) → Verbrauch → Summary → Timeline/Contact
-    if (s === 2) return askInput('PLZ (5-stellig)?', 'plz', v => /^\d{5}$/.test(v));
-    if (s === 3) { maybeRenderExpressCTA(); return askInput('Ort?', 'ort', v => (v||'').length >= 2); }
-    if (s === 4) return askQuick('Welcher Gebäudetyp?', [
-      { label: 'Einfamilienhaus', value: 'einfamilienhaus' },
-      { label: 'Mehrfamilienhaus', value: 'mehrfamilienhaus' },
-      { label: 'Gewerbe', value: 'gewerbe' },
-      { label: 'Reihenhaus', value: 'reihenhaus' },
-      { label: 'Doppelhaushälfte', value: 'doppelhaushälfte' }
-    ], 'prop_type');
-
-    if (s === 5) return askQuick('Dachform?', [
-      { label: 'Satteldach', value: 'satteldach' },
-      { label: 'Walmdach', value: 'walmdach' },
-      { label: 'Flachdach', value: 'flachdach' },
-      { label: 'Pultdach', value: 'pultdach' },
-      { label: 'Sonstiges', value: 'sonstiges' }
-    ], 'dachform');
-
-    if (s === 6) return askInput('Dachfläche (m²) ca.?', 'area_sqm', v => /^[0-9]+(\.[0-9]+)?$/.test(v));
-
-    if (s === 7) {
-      const area = parseFloat(Funnel.state.data.area_sqm || 0);
-      if (area && area < 10) return exitWith('dachfläche_zu_klein');
-      return askQuick('Dachausrichtung?', [
-        { label: 'Süd', value: 'sued' }, { label: 'Süd-Ost', value: 'sued-ost' },
-        { label: 'Süd-West', value: 'sued-west' }, { label: 'Ost', value: 'ost' },
-        { label: 'West', value: 'west' }, { label: 'Nord', value: 'nord' },
-        { label: 'Gemischt', value: 'gemischt' }
-      ], 'orientation');
+    if (d.prop_type === undefined) {
+      const opts = (lang==="de"
+        ? ['Einfamilienhaus','Mehrfamilienhaus','Gewerbe','Sonstiges']
+        : ['Single-family','Multi-family','Commercial','Other']).map(t => ({label:t, value: t.toLowerCase().replace(/\s/g,'_')}));
+      return askQuick(Q.prop_type_q[lang], opts, 'prop_type');
     }
-
-    if (s === 8) return askInput('Neigungswinkel (°)?', 'neigung_deg', v => {
-      const n = parseFloat(v); return !isNaN(n) && n >= 0 && n <= 90;
-    });
-
-    if (s === 9) return askQuick('Verschattung?', [
-      { label: 'Keine', value: 'keine' },
-      { label: 'Leicht', value: 'leicht' },
-      { label: 'Mittel', value: 'mittel' },
-      { label: 'Stark', value: 'stark' }
-    ], 'verschattung');
-
-    if (s === 10) return askQuick('Batteriespeicher?', [
-      { label: 'Ja', value: true },
-      { label: 'Nein', value: false }
-    ], 'batterie_ja');
-
-    if (s === 11) {
-      if (Funnel.state.data.batterie_ja === true && !Funnel.state.data.batterie_kwh) {
-        return askInput('Kapazität Batterie (kWh)?', 'batterie_kwh', v => /^[0-9]+(\.[0-9]+)?$/.test(v));
-      }
-      return askNext();
+    if (d.roof_form === undefined) {
+      const opts = (lang==="de"
+        ? ['Satteldach','Walmdach','Flachdach','Pultdach','Sonstiges']
+        : ['Gable','Hip','Flat','Mono-pitch','Other']).map(t => ({label:t, value: t.toLowerCase().replace(/\s/g,'_')}));
+      return askQuick(Q.roof_form_q[lang], opts, 'roof_form');
     }
-
-    if (s === 12) return askInput('Jahresstromverbrauch (kWh)?', 'consumption_kwh', v => /^[0-9]{3,6}$/.test(v));
-
-    if (s === 13) {
-      // Summary sebelum minta timeline/contact
-      return renderSummaryCard();
+    if (d.area_sqm === undefined) {
+      return askInput(Q.area_q[lang], 'area_sqm', v => v.trim().length>0); // flexible
     }
+    if (d.orientation === undefined) {
+      const opts = (lang==="de"
+        ? ['Süd','Süd-Ost','Süd-West','Ost','West','Nord','Gemischt']
+        : ['South','South-East','South-West','East','West','North','Mixed'])
+        .map(t => ({label:t, value: t.toLowerCase().replace(/\s/g,'_')}));
+      return askQuick(Q.orient_q[lang], opts, 'orientation');
+    }
+    if (d.neigung_deg === undefined) {
+      return askInput(Q.pitch_q[lang], 'neigung_deg', v => v.trim().length>0); // flexible
+    }
+    if (d.verschattung === undefined) {
+      const opts = (lang==="de"
+        ? ['Keine','Leicht','Mittel','Stark']
+        : ['None','Light','Medium','Heavy']).map(t => ({label:t, value:t.toLowerCase()}));
+      return askQuick(Q.shade_q[lang], opts, 'verschattung');
+    }
+    if (d.consumption_kwh === undefined) {
+      return askInput(Q.cons_q[lang], 'consumption_kwh', v => v.trim().length>0); // flexible
+    }
+    if (d.battery_jn === undefined) {
+      return askQuick(Q.battery_q[lang], [{label:(lang==="de"?'Ja':'Yes'), value:true},{label:(lang==="de"?'Nein':'No'), value:false}], 'battery_jn');
+    }
+    if (d.battery_jn === true && d.battery_kwh === undefined) {
+      return askInput(Q.battery_k_q[lang], 'battery_kwh', v => v.trim().length>0);
+    }
+    if (d.timeline === undefined) {
+      const opts = (lang==="de"
+        ? ['0–3 Monate','3–6 Monate','6–12 Monate']
+        : ['0–3 months','3–6 months','6–12 months']).map((t,i)=>({label:t, value:(i===0?'0-3':i===1?'3-6':'6-12')}));
+      return askQuick(Q.timeline_q[lang], opts, 'timeline'); // triggers summary + form
+    }
+    return; // done
   }
 
   if (p === 'roof') {
-    if (s === 2) return askQuick('Gebäudetyp?', [
-      { label: 'Einfamilienhaus', value: 'einfamilienhaus' },
-      { label: 'Mehrfamilienhaus', value: 'mehrfamilienhaus' },
-      { label: 'Gewerbe', value: 'gewerbe' }
-    ], 'prop_type');
-
-    if (s === 3) return askQuick('Dachmaterial?', [
-      { label: 'Ziegel', value: 'ziegel' },
-      { label: 'Bitumen', value: 'bitumen' },
-      { label: 'Blech', value: 'blech' }
-    ], 'material');
-
-    if (s === 4) return askQuick('Gibt es Probleme?', [
-      { label: 'Undichtigkeiten', value: 'undicht' },
-      { label: 'Dämmung', value: 'daemmung' },
-      { label: 'Keine', value: 'none' }
-    ], 'issues');
-
-    if (s === 5) return askInput('Dachfläche (m²)?', 'area_sqm', v => /^[0-9]+(\.[0-9]+)?$/.test(v));
-
-    if (s === 6) return askQuick('Zusatzoptionen?', [
-      { label: 'Dämmung', value: 'daemmung' },
-      { label: 'Dachfenster', value: 'dachfenster' },
-      { label: 'Keine', value: 'none' }
-    ], 'addons');
-
-    if (s === 7) return askContact();
+    if (d.prop_type === undefined) {
+      const opts = (lang==="de"
+        ? ['Einfamilienhaus','Mehrfamilienhaus','Gewerbe']
+        : ['Single-family','Multi-family','Commercial']).map(t=>({label:t,value:t.toLowerCase().replace(/\s/g,'_')}));
+      return askQuick(Q.prop_type_q[lang], opts, 'prop_type');
+    }
+    if (d.material === undefined) {
+      const opts = (lang==="de" ? ['Ziegel','Bitumen','Blech'] : ['Tile','Bitumen','Metal'])
+        .map(t=>({label:t,value:t.toLowerCase()}));
+      return askQuick('Dachmaterial?', opts, 'material');
+    }
+    if (d.issues === undefined) {
+      const opts = (lang==="de"
+        ? ['Undichtigkeiten','Dämmung','Keine']
+        : ['Leaks','Insulation','None']).map(t=>({label:t,value:t.toLowerCase()}));
+      return askQuick(Q.issues_q[lang], opts, 'issues');
+    }
+    if (d.area_sqm === undefined) {
+      return askInput('Dachfläche (m²)?', 'area_sqm', v => v.trim().length>0);
+    }
+    if (d.addons === undefined) {
+      const opts = (lang==="de"
+        ? ['Dämmung','Dachfenster','Keine']
+        : ['Insulation','Roof windows','None']).map(t=>({label:t,value:t.toLowerCase()}));
+      return askQuick('Zusatzoptionen?', opts, 'addons');
+    }
+    if (d.timeline === undefined) {
+      const opts = (lang==="de"
+        ? ['0–3 Monate','3–6 Monate','6–12 Monate']
+        : ['0–3 months','3–6 months','6–12 months']).map((t,i)=>({label:t, value:(i===0?'0-3':i===1?'3-6':'6-12')}));
+      return askQuick(Q.timeline_q[lang], opts, 'timeline');
+    }
+    return;
   }
 
   if (p === 'heatpump') {
-    if (s === 2) return askQuick('Gebäudetyp?', [
-      { label: 'Einfamilienhaus', value: 'einfamilienhaus' },
-      { label: 'Mehrfamilienhaus', value: 'mehrfamilienhaus' },
-      { label: 'Gewerbe', value: 'gewerbe' }
-    ], 'prop_type');
-
-    if (s === 3) return askQuick('Aktuelle Heizart?', [
-      { label: 'Gas', value: 'gas' },
-      { label: 'Öl', value: 'öl' },
-      { label: 'Fernwärme', value: 'fernwärme' }
-    ], 'heatingType');
-
-    if (s === 4) return askInput('Wohnfläche (m²)?', 'living_area', v => /^[0-9]+(\.[0-9]+)?$/.test(v));
-
-    if (s === 5) {
-      const la = parseFloat(Funnel.state.data.living_area || 0);
-      if (la && la < 30) return exitWith('wohnfläche_zu_klein');
-      return askQuick('Kombi mit PV?', [{ label: 'Ja', value: true }, { label: 'Nein', value: false }], 'pv_combo');
+    if (d.prop_type === undefined) {
+      const opts = (lang==="de"
+        ? ['Einfamilienhaus','Mehrfamilienhaus','Gewerbe']
+        : ['Single-family','Multi-family','Commercial']).map(t=>({label:t,value:t.toLowerCase().replace(/\s/g,'_')}));
+      return askQuick(Q.prop_type_q[lang], opts, 'prop_type');
     }
-
-    if (s === 6) return askContact();
+    if (d.heatingType === undefined) {
+      const opts = (lang==="de" ? ['Gas','Öl','Fernwärme'] : ['Gas','Oil','District heating'])
+        .map(t=>({label:t,value:t.toLowerCase()}));
+      return askQuick(Q.heatingType_q[lang], opts, 'heatingType');
+    }
+    if (d.living_area === undefined) {
+      return askInput(Q.living_area_q[lang], 'living_area', v => v.trim().length>0);
+    }
+    if (d.pv_combo === undefined) {
+      return askQuick('Kombi mit PV?', [{label:(lang==="de"?'Ja':'Yes'), value:true},{label:(lang==="de"?'Nein':'No'), value:false}], 'pv_combo');
+    }
+    if (d.timeline === undefined) {
+      const opts = (lang==="de"
+        ? ['0–3 Monate','3–6 Monate','6–12 Monate']
+        : ['0–3 months','3–6 months','6–12 months']).map((t,i)=>({label:t, value:(i===0?'0-3':i===1?'3-6':'6-12')}));
+      return askQuick(Q.timeline_q[lang], opts, 'timeline');
+    }
+    return;
   }
 
   if (p === 'tenant') {
-    if (s === 2) return askQuick('Immobilientyp?', [
-      { label: 'Mehrfamilienhaus', value: 'mehrfamilienhaus' },
-      { label: 'Gewerbe', value: 'gewerbe' }
-    ], 'prop_type');
-
-    if (s === 3) return askInput('Anzahl Wohneinheiten?', 'units', v => /^[0-9]+$/.test(v));
-
-    if (s === 4) {
-      const u = parseInt(Funnel.state.data.units || '0', 10);
-      if (u && u < 3) return exitWith('einheiten_zu_wenig');
-      return askQuick('Bist du Eigentümer/Verwalter?', [{ label: 'Ja', value: true }, { label: 'Nein', value: false }], 'owner2');
+    if (d.prop_type === undefined) {
+      const opts = (lang==="de" ? ['Mehrfamilienhaus','Gewerbe'] : ['Multi-family','Commercial'])
+        .map(t=>({label:t,value:t.toLowerCase().replace(/\s/g,'_')}));
+      return askQuick(Q.prop_type_q[lang], opts, 'prop_type');
     }
-
-    if (s === 5 && Funnel.state.data.owner2 === false) return exitWith('kein_eigentümer');
-    if (s === 5) return askQuick('Interesse?', [
-      { label: 'PV', value: 'pv' },
-      { label: 'Wärmepumpe', value: 'wp' },
-      { label: 'Dach', value: 'dach' }
-    ], 'interest');
-
-    if (s === 6) return askContact();
+    if (d.units === undefined) {
+      return askInput(lang==="de"?'Anzahl Wohneinheiten?':'Number of units?', 'units', v => v.trim().length>0);
+    }
+    if (d.owner2 === undefined) {
+      return askQuick(lang==="de"?'Bist du Eigentümer/Verwalter?':'Are you the owner/manager?',
+        [{label:(lang==="de"?'Ja':'Yes'), value:true},{label:(lang==="de"?'Nein':'No'), value:false}], 'owner2');
+    }
+    if (d.owner2 === false) return exitWith('kein_eigentümer');
+    if (d.interest === undefined) {
+      const opts = (lang==="de" ? ['PV','Wärmepumpe','Dach'] : ['PV','Heat pump','Roof'])
+        .map(t=>({label:t,value:t.toLowerCase().replace(/\s/g,'_')}));
+      return askQuick('Interesse?', opts, 'interest');
+    }
+    if (d.timeline === undefined) {
+      const opts = (lang==="de"
+        ? ['0–3 Monate','3–6 Monate','6–12 Monate']
+        : ['0–3 months','3–6 months','6–12 months']).map((t,i)=>({label:t, value:(i===0?'0-3':i===1?'3-6':'6-12')}));
+      return askQuick(Q.timeline_q[lang], opts, 'timeline');
+    }
+    return;
   }
 }
-window.askNext = askNext; // expose for AIGuard.maybeContinueFunnel
-
-// ------------------------
-// 📇 Contact + CRM submit
-// ------------------------
-function askContact() {
-  askQuick(T('timeline_q'), [
-    { label: '0–3 Monate',  value: '0-3'  },
-    { label: '3–6 Monate',  value: '3-6'  },
-    { label: '6–12 Monate', value: '6-12' }
-  ], 'timeline');
-}
+window.askNext = askNext;
 
 // ========================
-// 🧪 A/B Variant + Tracking
+// 🧪 A/B Variant (sticky)
 // ========================
-const AB = {
-  variant: (localStorage.getItem('ab_variant') || (Math.random() < 0.5 ? 'A' : 'B'))
-};
+const AB = { variant: (localStorage.getItem('ab_variant') || (Math.random() < 0.5 ? 'A' : 'B')) };
 localStorage.setItem('ab_variant', AB.variant);
-
-// Text variants (fixed: no recursion)
-function T(key) {
-  const v = AB.variant;
-  const dict = {
-    owner_q:   { A: 'Bist du Eigentümer:in der Immobilie?', B: 'Bist du Eigentümer/in der Immobilie?' },
-    occupy_q:  { A: 'Bewohnst du die Immobilie selbst?',     B: 'Wohnst du selbst in der Immobilie?' },
-    roof_area: { A: 'Wie groß ist die Dachfläche (m²) ca.?', B: 'Wie groß ist die Dachfläche (m²) ca.?' },
-    timeline_q:{ A: 'Wann planst du die Umsetzung?',         B: 'Wann möchtest du das Projekt starten?' },
-    contact_q: { A: 'Super! Wie ist dein Name, E-Mail und Telefonnummer?', B: 'Top – nenn mir bitte Name, E-Mail und Telefon.' }
-  };
-  return (dict[key] && dict[key][v]) || key;
-}
