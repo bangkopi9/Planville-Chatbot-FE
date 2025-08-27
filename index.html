@@ -1,26 +1,31 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Planville AI Chatbot</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css"/>
 
   <!-- ===== Global Config + API URL helper ===== -->
   <script>
-    // GANTI ke domain backend Railway kamu (disamakan satu sumber)
+    // GANTI ke domain backend Railway kamu
     window.CONFIG = {
       BASE_API_URL: "https://web-production-352d9.up.railway.app"
     };
 
-    // Bangun URL absolut ke backend
+    // === Google Sheets webhook (Apps Script) ===
+    // GANTI dua konstanta ini sesuai Web App GAS-mu
+    const GS_WEBHOOK_URL = "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec";
+    const GS_WEBHOOK_SECRET = "REPLACE_WITH_YOUR_SECRET";
+
+    // Build absolute URL ke backend
     function apiURL(path) {
       const base = (window.CONFIG?.BASE_API_URL || "").replace(/\/$/,"");
       const p = path.startsWith("/") ? path : `/${path}`;
       return base ? `${base}${p}` : p;
     }
 
-    // Rewriter: arahkan panggilan relatif ke backend (endpoints yang kita pakai)
+    // Rewriter: relative → backend
     (function patchFetch(){
       const orig = window.fetch;
       window.fetch = function(input, init){
@@ -50,14 +55,13 @@
       return s;
     }
     function mapProduct(p){
-      // Normalisasi label UI -> kode backend (pv|dach|wp|mieterstrom)
       const t = (p||"").toLowerCase();
       if (t.includes("photo") || t.includes("pv")) return "pv";
-      if (t.includes("dach")) return "dach";
-      if (t.includes("wärme") || t.includes("warme") || t.includes("waerme") || t.includes("heat")) return "wp";
-      if (t.includes("mieter")) return "mieterstrom";
-      if (t.includes("klima")) return "wp"; // atau buat branch AC sendiri nanti
-      if (t.includes("speicher")) return "pv"; // baterai dianggap add-on PV
+      if (t.includes("dach") || t.includes("roof")) return "dach";
+      if (t.includes("wärme") || t.includes("waerme") || t.includes("heat") || t.includes("wp")) return "wp";
+      if (t.includes("mieter") || t.includes("tenant")) return "mieterstrom";
+      if (t.includes("klima") || t.includes("air con")) return "wp";
+      if (t.includes("speicher") || t.includes("battery")) return "pv";
       return "pv";
     }
     function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e||"").trim()); }
@@ -79,12 +83,12 @@
   <!-- 💬 Main Chatbot UI -->
   <div class="chatbot-container">
     <div class="chatbot-header">
-      <img src="planville-logo.png" alt="Planville Logo" class="chatbot-logo" />
+      <img src="planville-logo.png" alt="Planville Logo" class="chatbot-logo"/>
       <h1>Chat with Planville AI</h1>
 
       <!-- Dark/Light switch -->
       <label class="switch">
-        <input type="checkbox" id="modeToggle" />
+        <input type="checkbox" id="modeToggle"/>
         <span class="slider"></span>
       </label>
     </div>
@@ -93,7 +97,7 @@
     <div id="typing-bubble" class="chatbot-message bot-message typing-bubble" style="display:none">...</div>
 
     <form id="chatbot-form">
-      <input id="chatbot-input" type="text" autocomplete="off" placeholder="Type your question..." />
+      <input id="chatbot-input" type="text" autocomplete="off" placeholder="Type your question..."/>
       <button type="submit">💬</button>
     </form>
 
@@ -105,60 +109,6 @@
         <option value="en">🇬🇧 English</option>
       </select>
     </div>
-
-    <!-- CTA mulai konfigurator -->
-    <button id="startConfigBtn" type="button" class="cta-button">Jetzt starten</button>
-  </div>
-
-  <!-- 📋 CONFIGURATOR FORM (SIMPLE) -->
-  <div id="configForm" class="config-form" style="display:none;">
-    <h2>Produkt wählen</h2>
-    <select id="productSelect" required>
-      <option value="">Bitte auswählen</option>
-      <option value="PV-Anlage">PV-Anlage</option>
-      <option value="Dachsanierung">Dachsanierung</option>
-      <option value="Wärmepumpe">Wärmepumpe</option>
-      <option value="Klimaanlage">Klimaanlage</option>
-      <option value="Speicherlösung">Speicherlösung</option>
-    </select>
-
-    <h2>Kontaktdaten</h2>
-    <input type="text" id="vorname" placeholder="Vorname" required />
-    <input type="text" id="nachname" placeholder="Nachname" required />
-    <input type="text" id="adresse" placeholder="Adresse" required />
-    <input type="email" id="email" placeholder="E-Mail" required />
-    <input type="tel" id="telefon" placeholder="Telefonnummer" required />
-    <button id="submitConfig" type="button">Absenden</button>
-  </div>
-
-  <!-- 🎯 FORM WIZARD (DOUBLE CLICK MODE) -->
-  <div id="form-wizard" class="form-wizard" style="display:none;">
-    <h2>Jetzt starten</h2>
-
-    <label for="product-choice">Produkt wählen:</label>
-    <select id="product-choice">
-      <option value="Photovoltaik">Photovoltaik</option>
-      <option value="Wärmepumpe">Wärmepumpe</option>
-      <option value="Klimaanlage">Klimaanlage</option>
-      <option value="Dachsanierung">Dachsanierung</option>
-    </select>
-
-    <label for="fname">Vorname:</label>
-    <input id="fname" type="text" required />
-
-    <label for="lname">Nachname:</label>
-    <input id="lname" type="text" required />
-
-    <label for="addr">Adresse:</label>
-    <input id="addr" type="text" required />
-
-    <label for="mail">E-Mail:</label>
-    <input id="mail" type="email" required />
-
-    <label for="phone">Telefonnummer:</label>
-    <input id="phone" type="tel" required />
-
-    <button type="button" onclick="submitLead()">Absenden</button>
   </div>
 
   <!-- 🍪 Cookie Consent -->
@@ -171,42 +121,34 @@
     </div>
   </div>
 
-  <!-- ⚙️ AI Q&A ringan + Chatbot -->
-  <!-- FIX: file ini di root, bukan /js -->
+  <!-- ⚙️ AI guard + Chatbot (versi revisi) -->
   <script defer src="ai_guardrails_vlite.js"></script>
   <script defer src="chatbot.js"></script>
 
   <!-- 🧠 GA4 & Event/Lead helpers + bootstrapping -->
   <script>
-    /* ---------- Consent & Analytics Gate (A) ---------- */
+    /* ---------- Consent & Analytics Gate ---------- */
     function getConsentState(){
       try {
         const raw = localStorage.getItem("consent_v1");
         if (raw) {
           const c = JSON.parse(raw);
-          return {
-            essential: true,
-            analytics: !!c.analytics,
-            marketing: !!c.marketing,
-            personalization: !!c.personalization
-          };
+          return { essential:true, analytics:!!c.analytics, marketing:!!c.marketing, personalization:!!c.personalization };
         }
       } catch(_) {}
-      const simple = localStorage.getItem("cookieConsent"); // "accepted" | "rejected"
-      return { essential: true, analytics: simple === "accepted", marketing: false, personalization: false };
+      const simple = localStorage.getItem("cookieConsent");
+      return { essential:true, analytics:simple==="accepted", marketing:false, personalization:false };
     }
     function allowAnalytics(){ return !!getConsentState().analytics; }
 
-    // Single place to send FE events (gated)
+    // FE events (gated)
     function trackFE(eventName, props = {}, { essential = false } = {}) {
       if (!essential && !allowAnalytics()) return;
-
       try {
         window.dataLayer = window.dataLayer || [];
         const variant = localStorage.getItem("ab_variant") || "A";
         window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
       } catch(_) {}
-
       try {
         fetch(apiURL("/track"), {
           method: "POST",
@@ -216,7 +158,7 @@
       } catch(_) {}
     }
 
-    /* ---------- Scoring sederhana (A) ---------- */
+    /* ---------- Simple scoring ---------- */
     function computeLeadScore(product, q = {}) {
       const p = (product || "").toLowerCase();
       const area = parseFloat(q.area_sqm || q.dachflache_m2 || 0) || 0;
@@ -225,16 +167,16 @@
       const consKwh = parseInt(q.consumption_kwh || q.verbrauch_kwh || 0, 10) || 0;
       const timeline = String(q.timeline || q.zeitrahmen || "").toLowerCase();
 
-      let score = 50; // base
+      let score = 50;
       if (area >= 60) score += 10;
       if (consKwh >= 3500) score += 6;
       if (timeline === "0-3" || timeline.includes("sofort") || timeline.includes("1-3")) score += 10;
 
       if (["pv","photovoltaik","pv-anlage"].some(k => p.includes(k))) {
         if (/(süd|sued|south)/.test(orient)) score += 8;
-        if (verschattung === "keine" || verschattung === "leicht") score += 6;
+        if (verschattung === "keine" || verschattung === "leicht" || /none|light/.test(verschattung)) score += 6;
       }
-      if (p.includes("dach")) {
+      if (p.includes("dach") || p.includes("roof")) {
         if (["undicht","leak","damage","beschädigt"].some(k => (q.issues||"").toLowerCase().includes(k))) score += 10;
       }
       if (p.includes("wp") || p.includes("wärme") || p.includes("waerme") || p.includes("heat")) {
@@ -250,9 +192,9 @@
       return Math.max(0, Math.min(100, score));
     }
 
-    /* ---------- Analytics (B & C) ---------- */
+    /* ---------- Analytics ---------- */
     function enableGTM() {
-      if (!allowAnalytics()) return; // gate by consent
+      if (!allowAnalytics()) return;
       const s = document.createElement("script");
       s.src = "https://www.googletagmanager.com/gtag/js?id=G-YL8ECJ5V17";
       s.async = true;
@@ -265,35 +207,8 @@
       gtag('config', 'G-YL8ECJ5V17');
     }
 
-    function trackChatEvent(question, lang) {
-      if (!allowAnalytics()) return;
-      if (typeof gtag !== "undefined") {
-        gtag('event', 'chat_message', { event_category: 'chatbot', event_label: question, language: lang });
-      }
-    }
-    function trackFAQClick(text) {
-      if (!allowAnalytics()) return;
-      if (typeof gtag !== "undefined") {
-        const selectedLang = document.getElementById("langSwitcher").value;
-        gtag('event', 'faq_click', { event_category: 'faq', event_label: text, language: selectedLang });
-      }
-    }
-    function trackConfigStart() {
-      if (!allowAnalytics()) return;
-      if (typeof gtag !== "undefined") {
-        gtag('event', 'start_config_click', { event_category: 'konfigurator', event_label: 'Jetzt starten' });
-      }
-    }
-    function trackConfigSubmit(product) {
-      if (!allowAnalytics()) return;
-      if (typeof gtag !== "undefined") {
-        gtag('event', 'config_submit_success', { event_category: 'konfigurator', event_label: product });
-      }
-    }
-
     /* ---------- Cookie consent ---------- */
     function acceptCookies() {
-      // Simple flag + structured state
       localStorage.setItem("cookieConsent", "accepted");
       localStorage.setItem("consent_v1", JSON.stringify({ analytics: true, marketing: false, personalization: false }));
       document.getElementById("cookie-banner").style.display = "none";
@@ -308,6 +223,70 @@
       alert("Einstellungsseite ist noch in Entwicklung.");
     }
 
+    /* ---------- Summary helpers ---------- */
+    function buildLeadSummary(lang, productLabel, q = {}) {
+      const L = {
+        de: {
+          product:"Produkt", city:"Ort", plz:"PLZ", type:"Gebäudetyp", roofForm:"Dachform",
+          area:"Dachfläche (m²)", orient:"Ausrichtung", pitch:"Neigungswinkel (°)",
+          shade:"Verschattung", cons:"Jahresverbrauch (kWh)", battery:"Batteriespeicher",
+          timeline:"Zeitrahmen", yes:"Ja", no:"Nein"
+        },
+        en: {
+          product:"Product", city:"City", plz:"ZIP", type:"Property type", roofForm:"Roof form",
+          area:"Roof area (m²)", orient:"Orientation", pitch:"Pitch (°)",
+          shade:"Shading", cons:"Annual usage (kWh)", battery:"Battery storage",
+          timeline:"Timeline", yes:"Yes", no:"No"
+        }
+      }[lang||'de'];
+
+      const yesNo = (v) => v===true ? L.yes : (v===false ? L.no : (v ?? "-"));
+      const k = (x)=> (q[x] ?? "-");
+
+      return [
+        `${L.product}: ${productLabel || "-"}`,
+        `${L.city}: ${k('city')}`,
+        `${L.plz}: ${k('plz')}`,
+        `${L.type}: ${k('prop_type') || k('immobilientyp')}`,
+        `${L.roofForm}: ${k('roof_form') || k('dachform')}`,
+        `${L.area}: ${k('area_sqm') || k('dachflache_m2')}`,
+        `${L.orient}: ${k('orientation') || k('ausrichtung')}`,
+        `${L.pitch}: ${k('neigung_deg') || k('neigungswinkel')}`,
+        `${L.shade}: ${k('shading') || k('verschattung')}`,
+        `${L.cons}: ${k('consumption_kwh') || k('verbrauch_kwh')}`,
+        `${L.battery}: ${yesNo(q.battery_jn)}` + (q.battery_kwh ? ` (${q.battery_kwh} kWh)` : ""),
+        `${L.timeline}: ${k('timeline') || k('zeitrahmen')}`
+      ].join(" • ");
+    }
+
+    function showSummaryFromFunnel(qualification = {}) {
+      const lang = getLang();
+      const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
+      const s = buildLeadSummary(lang, productLabel, qualification);
+
+      const html = `
+        <div class="summary-bubble">
+          <ul>
+            ${s.split(" • ").map(li => `<li>${li}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+      appendMessage?.(html, "bot");
+      trackFE("summary_view", { product: mapProduct(productLabel) });
+    }
+
+    /* ---------- Google Sheets logging ---------- */
+    async function logLeadToGoogleSheet(payload){
+      if (!GS_WEBHOOK_URL || !GS_WEBHOOK_URL.startsWith("https")) return;
+      try {
+        await fetch(GS_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type":"application/json" },
+          body: JSON.stringify({ secret: GS_WEBHOOK_SECRET, data: payload })
+        });
+      } catch(_) {}
+    }
+
     /* ---------- Lead → Backend (/lead) ---------- */
     async function sendLeadToBackend({productLabel, name, address, email, phone, origin, qualification}) {
       const lang = getLang();
@@ -316,29 +295,34 @@
         ? qualification
         : { origin: origin || "form", product_label: productLabel };
 
-      // compute score sebelum push
       const score = computeLeadScore(product, q);
+      const summary = buildLeadSummary(lang, productLabel, q);
 
       const payload = {
         source: "Website Funnel",
         product,
         qualification: q,
-        contact: { name, address, email, phone },
+        contact: { name, address, email, phone, consent: true },
         score,
         disqualified: false,
-        notes: origin ? `Submitted via ${origin}` : "Submitted via index form",
+        summary,
+        notes: origin ? `Submitted via ${origin}` : "Submitted via chat funnel form",
         meta: { lang, session_id: sessionId(), variant: (localStorage.getItem("ab_variant") || "A") }
       };
 
       // FE analytics (gated)
       trackFE("contact_submit", { product, origin: origin||"unknown" });
 
+      // Send to Google Sheets (parallel)
+      logLeadToGoogleSheet(payload);
+
+      // Send to backend
       const res = await fetch(apiURL("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error("Lead push failed");
       return res.json();
     }
 
-    /* ---------- Mini-form kontak di log chat (muncul setelah pilih timeline) ---------- */
+    /* ---------- Mini contact form in chat (appears after timeline) ---------- */
     function injectLeadContactFormChat(productLabel, qualification) {
       const lang = getLang();
       const log = document.getElementById("chatbot-log");
@@ -354,7 +338,7 @@
           <input type="email" id="c_email" placeholder="E-Mail" required style="width:100%;margin:4px 0;">
           <input type="tel"   id="c_phone" placeholder="${lang==="de"?"Telefonnummer":"Phone number"}" required style="width:100%;margin:4px 0;">
           <label style="display:flex;gap:.5rem;align-items:center;margin:6px 0;">
-            <input type="checkbox" id="c_consent" required>
+            <input type="checkbox" id="c_consent" required checked>
             <span>${lang==="de"
               ? 'Ich stimme der Kontaktaufnahme und Verarbeitung meiner Daten gemäß <a href="https://planville.de/datenschutz/" target="_blank">Datenschutzerklärung</a> zu.'
               : 'I agree to be contacted and for my data to be processed according to the <a href="https://planville.de/datenschutz/" target="_blank">privacy policy</a>.'}
@@ -386,10 +370,7 @@
           });
           appendMessage?.(lang==="de"?"Danke! Wir melden uns in Kürze.":"Thank you! We’ll contact you shortly.","bot");
 
-          const cta = document.createElement("a");
-          cta.href="https://planville.de/kontakt"; cta.target="_blank";
-          cta.className="cta-button"; cta.innerText = lang==="de"?"Jetzt buchen":"Contact us";
-          document.getElementById("chatbot-log").appendChild(cta);
+          // HAPUS CTA "Jetzt buchen" setelah submit → tidak ada lagi CTA tambahan di sini
         }catch(err){
           console.error(err);
           appendMessage?.(lang==="de"?"Senden fehlgeschlagen. Bitte später erneut versuchen.":"Submission failed. Please try again later.","bot");
@@ -408,6 +389,9 @@
         ? { ...window.Funnel.state.data, timeline: timelineValue }
         : { timeline: timelineValue, product_label: productLabel };
 
+      // Tampilkan SUMMARY lebih dulu → lalu form
+      showSummaryFromFunnel(qualification);
+
       appendMessage?.(
         lang==="de"
           ? "Super, dann sind wir fast fertig. Bitte trage deine Kontaktdaten ein:"
@@ -417,7 +401,6 @@
 
       injectLeadContactFormChat(productLabel, qualification);
 
-      // gated track
       trackFE("contact_open", { product: mapProduct(productLabel), timeline: timelineValue });
     };
 
@@ -426,6 +409,7 @@
       const lang = getLang();
       const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
       const qualification = (window.Funnel?.state?.data) || {};
+      const summary = buildLeadSummary(lang, productLabel, qualification);
       const payload = {
         source: "Website Funnel",
         product: mapProduct(productLabel),
@@ -433,90 +417,20 @@
         contact: { name:"-", address:"-", email:"no@email.invalid", phone:"-" },
         score: 0,
         disqualified: true,
+        summary,
         notes: "Auto-disqualify gate",
         meta: { lang, session_id: sessionId(), variant: (localStorage.getItem("ab_variant") || "A") }
       };
       try {
+        // log ke Sheets juga
+        logLeadToGoogleSheet(payload);
         fetch(apiURL("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
       } catch(_){}
       trackFE("disqualify", { product: payload.product, reason: payload.qualification.disqualify_reason });
     };
 
-    /* ---------- Lead form (wizard) ---------- */
-    async function submitLead() {
-      const productLabel = document.getElementById("product-choice").value;
-      const fname  = document.getElementById("fname").value.trim();
-      const lname  = document.getElementById("lname").value.trim();
-      const addr   = document.getElementById("addr").value.trim();
-      const mail   = document.getElementById("mail").value.trim();
-      const phone  = document.getElementById("phone").value.trim();
-
-      if (!productLabel || !fname || !lname || !addr || !mail || !phone) {
-        alert("Bitte alle Felder ausfüllen.");
-        return;
-      }
-      if (!validEmail(mail)) { alert("Bitte eine gültige E-Mail eingeben."); return; }
-
-      try {
-        await sendLeadToBackend({
-          productLabel,
-          name: `${fname} ${lname}`.trim(),
-          address: addr,
-          email: mail,
-          phone,
-          origin: "wizard"
-        });
-        alert("Vielen Dank! Wir melden uns bald.");
-        if (typeof gtag !== "undefined" && allowAnalytics()) {
-          gtag('event', 'wizard_submit', { event_category: 'leadform', event_label: productLabel });
-        }
-        document.getElementById("form-wizard").style.display = "none";
-        const btn = document.getElementById("startConfigBtn");
-        if (btn) btn.style.display = "block";
-      } catch (err) {
-        console.error("Fehler beim Formular:", err);
-        alert("Verbindung fehlgeschlagen.");
-      }
-    }
-    window.submitLead = submitLead;
-
-    /* ---------- Konfigurator (simple) ---------- */
-    async function sendConfigSimple() {
-      const productLabel = document.getElementById("productSelect").value;
-      const vorname = document.getElementById("vorname").value.trim();
-      const nachname = document.getElementById("nachname").value.trim();
-      const adresse = document.getElementById("adresse").value.trim();
-      const email   = document.getElementById("email").value.trim();
-      const telefon = document.getElementById("telefon").value.trim();
-
-      if (!productLabel || !vorname || !nachname || !adresse || !email || !telefon) {
-        alert("Bitte alle Felder ausfüllen.");
-        return;
-      }
-      if (!validEmail(email)) { alert("Bitte eine gültige E-Mail eingeben."); return; }
-
-      try {
-        await sendLeadToBackend({
-          productLabel,
-          name: `${vorname} ${nachname}`.trim(),
-          address: adresse,
-          email,
-          phone: telefon,
-          origin: "simple-config"
-        });
-        alert("Danke! Wir haben Ihre Anfrage erhalten.");
-        trackConfigSubmit(productLabel);
-        document.getElementById("configForm").reset();
-        document.getElementById("configForm").style.display = "none";
-      } catch (err) {
-        console.error(err);
-        alert("Serverfehler. Bitte später erneut versuchen.");
-      }
-    }
-
     /* ---------- Bootstrapping on load ---------- */
     window.onload = function () {
-      // Cookie consent
       const consent = localStorage.getItem("cookieConsent");
       if (!consent) {
         document.getElementById("cookie-banner").style.display = "block";
@@ -524,25 +438,11 @@
         enableGTM();
       }
 
-      // Start Config button
-      const btn = document.getElementById("startConfigBtn");
-      if (btn) {
-        btn.addEventListener("click", () => {
-          document.getElementById("configForm").style.display = "block";
-          btn.style.display = "none";
-          trackConfigStart();
-        });
-        btn.addEventListener("dblclick", () => {
-          document.getElementById("form-wizard").style.display = "block";
-          btn.style.display = "none";
-        });
-      }
-
-      // Simple config submit
-      const submitCfg = document.getElementById("submitConfig");
-      if (submitCfg) submitCfg.addEventListener("click", sendConfigSimple);
-
-      // NOTE: Greeting & product chips sekarang ditangani oleh chatbot.js (hindari double greeting di sini)
+      // Initial greeting (pakai showProductOptions dari chatbot.js)
+      setTimeout(() => {
+        appendMessage?.("Hallo! 👋 Was kann ich für Sie tun?<br>Bitte wählen Sie ein Thema:", "bot");
+        showProductOptions?.();
+      }, 800);
     };
   </script>
 </body>
