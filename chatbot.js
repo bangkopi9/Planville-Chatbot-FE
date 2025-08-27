@@ -275,9 +275,10 @@ if (form) {
       if (window.AIGuard && typeof AIGuard.ask === "function") {
         const ai = await AIGuard.ask(question, selectedLang);
 
-        // jika guard minta stop (10 tektokan/low-confidence) → jangan fallback ke /chat
+        // jika guard minta stop (10 tektokan/low-confidence) → dorong ke form, jangan fallback ke /chat
         if (ai && ai.stop) {
           if (typingBubble) typingBubble.style.display = "none";
+          nudgeToFormFromInterrupt(selectedLang);
           return;
         }
 
@@ -299,6 +300,13 @@ if (form) {
       if (typingBubble) typingBubble.style.display = "none";
       appendMessage(finalReply, "bot");
       saveToHistory("bot", finalReply);
+
+      // Jika user mengetik saat funnel aktif → anggap "interrupt" dan dorong ke form (tanpa timeline)
+      const inFunnel = !!(window.Funnel && window.Funnel.state && window.Funnel.state.product);
+      const formAlreadyShown = !!document.getElementById("lead-contact-form-chat");
+      if (inFunnel && !formAlreadyShown) {
+        nudgeToFormFromInterrupt(selectedLang);
+      }
 
       track('chat_message', { q_len: question.length, lang: selectedLang });
 
@@ -861,6 +869,38 @@ function askNext() {
   }
 }
 window.askNext = askNext;
+
+// ========================
+// ✅ NUDGE: kalau user motong funnel / guard stop → tampilkan summary & form
+// ========================
+function nudgeToFormFromInterrupt(lang) {
+  try {
+    if (document.getElementById("lead-contact-form-chat")) return; // already shown
+
+    const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
+    const qualification = (window.Funnel?.state?.data) || {};
+
+    if (typeof window.showSummaryFromFunnel === "function") {
+      window.showSummaryFromFunnel(qualification);
+    }
+
+    const msg = (lang === "de")
+      ? "Alles klar! Dann bräuchten wir nur noch deine Kontaktdaten:"
+      : "All right! We just need your contact details:";
+    appendMessage(msg, "bot");
+
+    if (typeof window.injectLeadContactFormChat === "function") {
+      window.injectLeadContactFormChat(productLabel, qualification);
+    } else {
+      appendMessage(
+        (lang === "de")
+          ? 'Bitte nutze die <a href="https://planville.de/kontakt" target="_blank" rel="noopener">Kontaktseite</a>.'
+          : 'Please use our <a href="https://planville.de/kontakt" target="_blank" rel="noopener">contact page</a>.',
+        "bot"
+      );
+    }
+  } catch(_) {}
+}
 
 // ========================
 // 🧪 A/B Variant (sticky)
