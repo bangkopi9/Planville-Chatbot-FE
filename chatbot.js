@@ -275,10 +275,10 @@ if (form) {
       if (window.AIGuard && typeof AIGuard.ask === "function") {
         const ai = await AIGuard.ask(question, selectedLang);
 
-        // ← penting: kalau sudah 10 tektokan, AIGuard mengembalikan {stop:true}
+        // jika guard minta stop (10 tektokan/low-confidence) → jangan fallback ke /chat
         if (ai && ai.stop) {
           if (typingBubble) typingBubble.style.display = "none";
-          return; // jangan fallback ke /chat; AIGuard sudah munculkan pesan + langkah timeline
+          return;
         }
 
         finalReply = (ai && ai.text) ? ai.text : null;
