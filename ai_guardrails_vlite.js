@@ -1,77 +1,70 @@
-// js/ai_guardrails_vlite.js
-// AI Q&A ringan: singkat, relevan, dan tetap selaras dengan funnel.
-// - Tanpa "Quellen".
-// - Fallback otomatis ke /chat jika /ai/answer tidak ada.
-// - Setelah menjawab, bisa auto-lanjut ke step funnel berikutnya.
+// Lightweight AI guard + turn limiter
 
-(function(){
-  function sanitizeText(s) {
-    try {
-      // biar aman: potong panjang & strip script tag
-      s = String(s || "").replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "");
-      // batasi ~700 karakter biar ringkas
-      if (s.length > 700) s = s.slice(0, 700) + " …";
-      return s.trim();
-    } catch(_) { return ""; }
-  }
+(function(global){
+  const AIGuard = {};
+  let turns = 0;
+  const MAX_QA_TURNS = 10;
 
-  async function callHTTP(endpoint, body) {
-    const url = (typeof _baseURL === "function" ? _baseURL() : "") + endpoint;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type":"application/json" },
-      body: JSON.stringify(body || {})
-    });
-    return res;
-  }
+  function getLang(){ try { return document.getElementById("langSwitcher").value || "de"; } catch(_) { return "de"; } }
 
-  async function ask(message, lang) {
-    const payload = { message, lang, max_sentences: 2, concise: true };
-
-    // 1) coba /ai/answer
-    try {
-      const r = await callHTTP("/ai/answer", payload);
-      if (r.ok) {
-        const data = await r.json();
-        let txt = data.answer || data.reply || "";
-        txt = sanitizeText(txt);
-        if (!txt) throw new Error("empty");
-        return { text: txt, conf: data.confidence ?? null };
-      }
-    } catch(_) {}
-
-    // 2) fallback /chat
-    try {
-      const r2 = await callHTTP("/chat", { message, lang });
-      if (r2.ok) {
-        const data2 = await r2.json();
-        let txt2 = data2.answer || data2.reply || "";
-        txt2 = sanitizeText(txt2);
-        if (!txt2) throw new Error("empty2");
-        return { text: txt2, conf: null };
-      }
-    } catch(_) {}
-
-    // 3) fallback statis
-    const alt = lang === "en"
-      ? "Sorry, I don’t have enough info for that. Would you like to continue with a quick configuration?"
-      : "Dazu habe ich gerade keine gesicherten Infos. Möchtest du mit einer kurzen Konfiguration fortfahren?";
-    return { text: alt, conf: null };
-  }
-
-  function maybeContinueFunnel() {
-    try {
-      const f = window.Funnel && window.Funnel.state;
-      if (!f || !f.product) return;                          // belum ada funnel
-      if (document.getElementById("lead-contact-form-chat")) return; // sudah di form kontak
-      if (document.querySelector(".quick-group")) return;    // masih ada pertanyaan aktif
-      if (typeof window.askNext === "function") window.askNext();    // lanjut 1 step
-    } catch(_) {}
-  }
-
-  // Expose
-  window.AIGuard = {
-    ask,
-    maybeContinueFunnel
+  const SAFE_FALLBACK = {
+    de: "Dazu habe ich keine gesicherte Information. Ich kann dich gern mit unserem Team verbinden oder dir mit dem Konfigurator helfen.",
+    en: "I don't have verified information on that. I can connect you with our team or help you proceed with the configurator."
   };
-})();
+
+  // Call backend /ai/answer if available, otherwise null → chatbot.js will fallback to /chat
+  async function tryAiEndpoint(question, lang){
+    try {
+      const res = await fetch(`/ai/answer`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ message: question, lang })
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data && typeof data.text === "string" && data.text.trim()) {
+        return { text: data.text.trim() };
+      }
+      return null;
+    } catch(_) { return null; }
+  }
+
+  AIGuard.ask = async (question, lang) => {
+    lang = lang || getLang();
+
+    // stop after MAX_QA_TURNS → push to funnel timeline (summary+form)
+    if (turns >= MAX_QA_TURNS) {
+      const msg = (lang==="de")
+        ? "Damit wir dich konkret beraten können, gib bitte noch deinen Zeitraum an — danach erfassen wir kurz deine Kontaktdaten."
+        : "To help you concretely, please select your timeline — then we’ll just take your contact details.";
+      // Force ask timeline if funnel active
+      if (typeof window.askNext === "function" && window.Funnel?.state?.product) {
+        appendMessage?.(msg, "bot");
+        // ensure it will ask 'timeline' next
+        if (window.Funnel.state.data.timeline === undefined) {
+          window.askNext();
+        }
+      } else {
+        appendMessage?.(msg, "bot");
+      }
+      return { text: "" }; // already handled in chat
+    }
+
+    // try RAG/AI endpoint
+    const ai = await tryAiEndpoint(question, lang);
+
+    turns += 1;
+
+    if (ai && ai.text) return { text: ai.text };
+
+    // fallback
+    return { text: SAFE_FALLBACK[lang] || SAFE_FALLBACK.de };
+  };
+
+  // After bot answer → optionally continue funnel
+  AIGuard.maybeContinueFunnel = () => {
+    // No-op here; funnel proceeds based on askNext and user clicks
+  };
+
+  global.AIGuard = AIGuard;
+})(window);
