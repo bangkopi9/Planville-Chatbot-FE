@@ -4,11 +4,15 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Planville AI Chatbot</title>
+
   <link rel="stylesheet" href="style.css"/>
+  <!-- PWA + Icon -->
+  <link rel="manifest" href="manifest.json"/>
+  <link rel="icon" href="planville-logo.png" type="image/png"/>
 
   <!-- ===== Global Config + API URL helper ===== -->
   <script>
-    // GANTI ke domain backend Railway kamu
+    // GANTI ke domain backend kamu (Railway/Vercel backend)
     window.CONFIG = {
       BASE_API_URL: "https://web-production-352d9.up.railway.app"
     };
@@ -16,29 +20,27 @@
     const GS_WEBHOOK_URL = "https://script.google.com/a/macros/planville.de/s/AKfycbyKLXl0OVZuGNsSxMDlz-tt4zGLx9kCyUSqlKZgfPCPx5TizWGS-8FfURRLJYFW8F_9/exec";
     const GS_WEBHOOK_SECRET = "PV_LEADS_WEBHOOK_SECRET_8e2c7f4fb2c3412cbbde2f3e9a0c7b51";
 
-    // Build absolute URL ke backend
+    // Build absolute URL ke backend (robust)
     function apiURL(path) {
-      const base = (window.CONFIG?.BASE_API_URL || "").replace(/\/$/,"");
+      let base = String(window.CONFIG?.BASE_API_URL || "").trim();
+      if (!base) return path;
+      if (!/^https?:\/\//i.test(base)) base = "https://" + base;
+      base = base.replace(/\/+$/, "");
       const p = path.startsWith("/") ? path : `/${path}`;
-      return base ? `${base}${p}` : p;
+      return `${base}${p}`;
     }
 
-    // Rewriter: relative → backend
+    // Rewriter: relative → backend (cover streaming & lainnya)
     (function patchFetch(){
-      const orig = window.fetch;
+      const orig = window.fetch.bind(window);
+      const shouldRewrite = (u) => /^\/(chat(?:\/stream|\/sse)?|track|lead|funnel\/next|ai\/answer|save-config)(\/.*)?$/i.test(u);
+
       window.fetch = function(input, init){
         try {
-          const rewrite = (u) => {
-            if (/^\/(chat|track|lead|funnel\/next|ai\/answer|save-config)(\/.*)?$/.test(u)) {
-              return apiURL(u);
-            }
-            return u;
-          };
-          if (typeof input === "string") {
-            input = rewrite(input);
-          } else if (input && input.url) {
-            const url = rewrite(input.url);
-            if (url !== input.url) input = new Request(url, input);
+          if (typeof input === "string" && shouldRewrite(input)) {
+            input = apiURL(input);
+          } else if (input && typeof input.url === "string" && shouldRewrite(input.url)) {
+            input = new Request(apiURL(input.url), input);
           }
         } catch(_) {}
         return orig(input, init);
@@ -119,7 +121,7 @@
     </div>
   </div>
 
-  <!-- ⚙️ AI guard + Chatbot (versi revisi) -->
+  <!-- ⚙️ AI guard + Chatbot (tetap pakai filemu) -->
   <script defer src="ai_guardrails_vlite.js"></script>
   <script defer src="chatbot.js"></script>
 
@@ -367,8 +369,6 @@
             qualification: qualification || {}
           });
           appendMessage?.(lang==="de"?"Danke! Wir melden uns in Kürze.":"Thank you! We’ll contact you shortly.","bot");
-
-          // HAPUS CTA "Jetzt buchen" setelah submit → tidak ada lagi CTA tambahan di sini
         }catch(err){
           console.error(err);
           appendMessage?.(lang==="de"?"Senden fehlgeschlagen. Bitte später erneut versuchen.":"Submission failed. Please try again later.","bot");
