@@ -17,6 +17,7 @@
       BASE_API_URL: "https://web-production-352d9.up.railway.app"
     };
 
+    // GANTI jika kamu redeploy GAS (pakai URL /macros/s/.../exec)
     const GS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyKLXl0OVZuGNsSxMDlz-tt4zGLx9kCyUSqlKZgfPCPx5TizWGS-8FfURRLJYFW8F_9/exec";
     const GS_WEBHOOK_SECRET = "PV_LEADS_WEBHOOK_SECRET_8e2c7f4fb2c3412cbbde2f3e9a0c7b51";
 
@@ -249,17 +250,28 @@
       trackFE("summary_view", { product: mapProduct(productLabel) });
     }
 
-    /* ---------- Google Sheets logging (NO-CORS, no preflight) ---------- */
-    async function logLeadToGoogleSheet(payload){
+    /* ---------- Google Sheets logging (sendBeacon + no-cors fallback) ---------- */
+    function logLeadToGoogleSheet(payload){
       if (!GS_WEBHOOK_URL) return;
+      const data = JSON.stringify({ secret: GS_WEBHOOK_SECRET, data: payload });
+
+      // 1) Coba kirim pakai beacon (non-blocking, no CORS preflight)
       try {
-        await fetch(GS_WEBHOOK_URL, {
+        if (navigator.sendBeacon) {
+          const blob = new Blob([data], { type: "text/plain;charset=utf-8" });
+          navigator.sendBeacon(GS_WEBHOOK_URL, blob);
+          return;
+        }
+      } catch (_) {}
+
+      // 2) Fallback fetch no-cors (response opaque itu normal)
+      try {
+        fetch(GS_WEBHOOK_URL, {
           method: "POST",
-          mode: "no-cors",                               // ⬅️ hindari preflight
-          headers: { "Content-Type": "text/plain;charset=utf-8" }, // ⬅️ simple request
-          body: JSON.stringify({ secret: GS_WEBHOOK_SECRET, data: payload })
+          mode: "no-cors",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: data
         });
-        // NOTE: no-cors → response opaque (nggak bisa dibaca). Itu normal.
       } catch(_) {}
     }
 
@@ -299,6 +311,8 @@
     }
 
     /* ---------- Mini contact form in chat (appears after timeline) ---------- */
+    let isSubmittingLead = false;
+
     function injectLeadContactFormChat(productLabel, qualification) {
       const lang = getLang();
       const log = document.getElementById("chatbot-log");
@@ -327,15 +341,26 @@
       `;
       log.appendChild(wrap);
 
-      document.getElementById("lead-contact-form-chat").addEventListener("submit", async (e)=>{
+      const form = wrap.querySelector("#lead-contact-form-chat");
+      const btn  = form.querySelector('button[type="submit"]');
+
+      form.addEventListener("submit", async (e)=>{
         e.preventDefault();
-        const name  = document.getElementById("c_name").value.trim();
-        const addr  = document.getElementById("c_addr").value.trim();
-        const email = document.getElementById("c_email").value.trim();
-        const phone = document.getElementById("c_phone").value.trim();
-        const ok    = document.getElementById("c_consent").checked;
+        if (isSubmittingLead) return; // anti double submit
+        const name  = form.querySelector("#c_name").value.trim();
+        const addr  = form.querySelector("#c_addr").value.trim();
+        const email = form.querySelector("#c_email").value.trim();
+        const phone = form.querySelector("#c_phone").value.trim();
+        const ok    = form.querySelector("#c_consent").checked;
+
         if (!ok) { alert(lang==="de"?"Bitte Zustimmung erteilen.":"Please give consent."); return; }
         if (!validEmail(email)) { alert(lang==="de"?"Bitte eine gültige E-Mail eingeben.":"Please enter a valid email."); return; }
+
+        // UI state
+        isSubmittingLead = true;
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = lang==="de" ? "Senden..." : "Sending...";
 
         try{
           await sendLeadToBackend({
@@ -348,6 +373,10 @@
         }catch(err){
           console.error(err);
           appendMessage?.(lang==="de"?"Senden fehlgeschlagen. Bitte später erneut versuchen.":"Submission failed. Please try again later.","bot");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = original;
+          isSubmittingLead = false;
         }
       });
     }
@@ -396,7 +425,7 @@
         meta: { lang, session_id: sessionId(), variant: (localStorage.getItem("ab_variant") || "A") }
       };
       try {
-        // log ke Sheets juga (no-cors)
+        // log ke Sheets juga (fire-and-forget)
         logLeadToGoogleSheet(payload);
         // relative → kena rewrites
         fetch("/lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
