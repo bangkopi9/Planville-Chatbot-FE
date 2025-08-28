@@ -249,15 +249,17 @@
       trackFE("summary_view", { product: mapProduct(productLabel) });
     }
 
-    /* ---------- Google Sheets logging ---------- */
+    /* ---------- Google Sheets logging (NO-CORS, no preflight) ---------- */
     async function logLeadToGoogleSheet(payload){
-      if (!GS_WEBHOOK_URL || !GS_WEBHOOK_URL.startsWith("https")) return;
+      if (!GS_WEBHOOK_URL) return;
       try {
         await fetch(GS_WEBHOOK_URL, {
           method: "POST",
-          headers: { "Content-Type":"application/json" },
+          mode: "no-cors",                               // ⬅️ hindari preflight
+          headers: { "Content-Type": "text/plain;charset=utf-8" }, // ⬅️ simple request
           body: JSON.stringify({ secret: GS_WEBHOOK_SECRET, data: payload })
         });
+        // NOTE: no-cors → response opaque (nggak bisa dibaca). Itu normal.
       } catch(_) {}
     }
 
@@ -287,7 +289,7 @@
       // FE analytics (gated)
       trackFE("contact_submit", { product, origin: origin||"unknown" });
 
-      // Send to Google Sheets (parallel)
+      // Send to Google Sheets (parallel, fire-and-forget)
       logLeadToGoogleSheet(payload);
 
       // Send to backend (relative → kena rewrites Vercel)
@@ -394,7 +396,7 @@
         meta: { lang, session_id: sessionId(), variant: (localStorage.getItem("ab_variant") || "A") }
       };
       try {
-        // log ke Sheets juga
+        // log ke Sheets juga (no-cors)
         logLeadToGoogleSheet(payload);
         // relative → kena rewrites
         fetch("/lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
