@@ -13,7 +13,7 @@
   --bg-light: #f8f9fa;
   --text-light: #212529;
   --bubble-user-light: #d1e7dd;
-  --bubble-bot-light: #030404;
+  --bubble-bot-light: #f7f7f7; /* fix: sebelumnya #030404 terlalu gelap untuk light mode */
   --border-light: #ced4da;
 }
 
@@ -53,43 +53,26 @@ body.light-mode .faq-sidebar {
   font-size: 18px;
   color: #FFFFFF;
 }
-.faq-sidebar ul {
-  list-style-type: none;
-  padding: 0;
-}
+.faq-sidebar ul { list-style-type: none; padding: 0; }
 .faq-sidebar li {
   padding: 0.5rem 0;
   color: #FFFFFF;
   cursor: pointer;
   border-bottom: 1px dashed #33475b;
-  transition: background 0.2s ease;
+  transition: background 0.2s ease, padding-left .2s ease;
 }
-.faq-sidebar li:hover {
-  background-color: #18201B;
-  padding-left: 8px;
-}
-body.light-mode .faq-sidebar li {
-  color: #1c4f72;
-  border-bottom: 1px dashed #b0c4d0;
-}
-body.light-mode .faq-sidebar li:hover {
-  background-color: #dde9f2;
-}
+.faq-sidebar li:hover { background-color: #18201B; padding-left: 8px; }
+body.light-mode .faq-sidebar li { color: #1c4f72; border-bottom: 1px dashed #b0c4d0; }
+body.light-mode .faq-sidebar li:hover { background-color: #dde9f2; }
 
-/* Hide sidebar on mobile */
 /* Hide sidebar on mobile */
 @media (max-width: 768px) {
-  .faq-sidebar {
-    display: none;
-  }
-
-  /* Optional: make chatbot container full width on mobile */
+  .faq-sidebar { display: none; }
   .chatbot-container {
     width: 100%;
     padding: 1rem; /* reduce padding for smaller screens */
-  
-  min-height: calc(100vh - 24px);
-}
+    min-height: calc(100vh - 24px);
+  }
 }
 
 /* Chatbot Container */
@@ -98,7 +81,6 @@ body.light-mode .faq-sidebar li:hover {
   display: flex;
   flex-direction: column;
   padding: 2rem;
-
   min-height: calc(100vh - 24px);
 }
 
@@ -108,45 +90,22 @@ body.light-mode .faq-sidebar li:hover {
   justify-content: space-between;
   margin-bottom: 1rem;
 }
-.chatbot-logo {
-  height: 32px;
-  margin-right: 10px;
-}
-.chatbot-header h1 {
-  flex-grow: 1;
-  font-size: 22px;
-  margin: 0;
-}
+.chatbot-logo { height: 32px; margin-right: 10px; }
+.chatbot-header h1 { flex-grow: 1; font-size: 22px; margin: 0; }
 
 /* Dark/Light Toggle Switch */
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 50px;
-  height: 26px;
-}
-.switch .switch .switch .switch input { opacity: 0; width: 0; height: 0; }
+.switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+.switch input { opacity: 0; width: 0; height: 0; } /* fix selector */
 .slider {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background-color: #555;
-  border-radius: 34px;
-  transition: 0.3s;
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #555; border-radius: 34px; transition: 0.3s;
 }
 .slider:before {
-  position: absolute;
-  content: "";
-  height: 20px; width: 20px; left: 3px; bottom: 3px;
-  background-color: white;
-  border-radius: 50%;
-  transition: 0.3s;
+  position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px;
+  background-color: white; border-radius: 50%; transition: 0.3s;
 }
-input:checked + .slider {
-  background-color: #28a745;
-}
-input:checked + .slider:before {
-  transform: translateX(24px);
-}
+input:checked + .slider { background-color: #28a745; }
+input:checked + .slider:before { transform: translateX(24px); }
 
 /* Chat Area */
 #chatbot-log {
@@ -171,6 +130,7 @@ body.light-mode #chatbot-log {
   line-height: 1.5;
   word-wrap: break-word;
   animation: fadeIn 0.2s ease-in-out;
+  transition: all 0.3s ease;
 }
 .user-message {
   background-color: var(--bubble-user);
@@ -185,37 +145,24 @@ body.light-mode #chatbot-log {
   border-bottom-left-radius: 2px;
   color: #18201B;
 }
-body.light-mode .user-message {
-  background-color: var(--bubble-user-light);
-}
-body.light-mode .bot-message {
-  background-color: var(--bubble-bot-light);
-}
+body.light-mode .user-message { background-color: var(--bubble-user-light); }
+body.light-mode .bot-message { background-color: var(--bubble-bot-light); color: var(--text-light); }
 
 /* Typing bubble */
-.typing-bubble {
-  font-style: italic;
-  color: #ccc;
-}
-.typing-bubble::after {
-  content: "";
-  animation: typing 1s steps(3) infinite;
-}
+.typing-bubble { font-style: italic; color: #ccc; }
+.typing-bubble::after { content: ""; animation: typing 1s steps(3) infinite; }
 @keyframes typing {
-  0% { content: "."; }
-  33% { content: ".."; }
-  66% { content: "..."; }
-  100% { content: ""; }
+  0% { content: "."; } 33% { content: ".."; } 66% { content: "..."; } 100% { content: ""; }
 }
 
 /* Form */
 form {
-  display: flex;
+  display: flex; gap: 8px;
   margin-top: auto;
   border-top: 1px solid #2b3b4c;
   padding-top: 1rem;
 }
-input[type="text"] {
+input[type="text"], input[type="email"], input[type="tel"] {
   flex-grow: 1;
   padding: 0.8rem;
   border-radius: 5px;
@@ -224,138 +171,75 @@ input[type="text"] {
   color: #000000;
   font-size: 1rem;
 }
-input[type="text"]:focus {
-  outline: none;
-  border-color: var(--accent);
+input[type="text"]:focus, input[type="email"]:focus, input[type="tel"]:focus {
+  outline: none; border-color: var(--accent);
 }
 button[type="submit"] {
   margin-left: 0.5rem;
   background-color: var(--accent);
-  border: none;
-  color: #000;
+  border: none; color: #000;
   padding: 0 1rem;
   border-radius: 5px;
-  cursor: pointer;
-  font-size: 1.1rem;
+  cursor: pointer; font-size: 1.1rem;
 }
-button:hover {
-  opacity: 0.9;
-}
+button:hover { opacity: 0.9; }
 
 /* Language Switcher */
-.language-switcher {
-  margin-top: 1rem;
-  text-align: right;
-}
-.language-switcher select {
-  padding: 0.4rem;
-  border-radius: 4px;
-  font-size: 1rem;
-}
+.language-switcher { margin-top: 1rem; text-align: right; }
+.language-switcher select { padding: 0.4rem; border-radius: 4px; font-size: 1rem; }
 
 /* Feedback Buttons */
-.feedback-btns {
-  margin-top: 8px;
-  text-align: right;
-}
+.feedback-btns { margin-top: 8px; text-align: right; }
 .feedback-btns button {
-  margin-left: 6px;
-  background: transparent;
-  border: none;
-  font-size: 1.2rem;
-  cursor: pointer;
-  transition: transform 0.2s;
+  margin-left: 6px; background: transparent; border: none;
+  font-size: 1.2rem; cursor: pointer; transition: transform 0.2s;
 }
-.feedback-btns button:hover {
-  transform: scale(1.2);
-}
+.feedback-btns button:hover { transform: scale(1.2); }
 
 /* Cookie Consent Banner */
 .cookie-popup {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: #203528;
-  color: #fff;
-  padding: 1rem;
-  z-index: 999;
-  display: none;
-  justify-content: space-between;
-  align-items: center;
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: #203528; color: #fff;
+  padding: 1rem; z-index: 999;
+  display: none; justify-content: space-between; align-items: center;
 }
-.cookie-popup p {
-  margin: 0;
-}
+.cookie-popup p { margin: 0; }
 .cookie-buttons button {
-  margin-left: 10px;
-  background-color: var(--accent);
-  color: #000;
-  padding: 5px 10px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
+  margin-left: 10px; background-color: var(--accent); color: #000;
+  padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer;
 }
 
 /* Animation */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
 /* Product Options as Bubble List */
 .product-options {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 1rem;
+  display: flex; flex-direction: column; gap: 12px; margin-top: 1rem;
 }
 .product-button {
   background-color: var(--accent);
-  padding: 1rem 1.5rem;
-  border: none;
-  border-radius: 24px;
-  font-size: 1.15rem;
-  font-weight: 600;
-  color: #000;
-  cursor: pointer;
-  transition: transform 0.2s, background 0.3s;
-  text-align: left;
+  padding: 1rem 1.5rem; border: none; border-radius: 24px;
+  font-size: 1.15rem; font-weight: 600; color: #000;
+  cursor: pointer; text-align: left;
+  transition: transform 0.2s, background 0.3s, box-shadow .2s;
 }
 .product-button:hover {
-  background-color: #84ffeb;
+  background-color: #ffcd39;
   transform: translateX(5px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
 }
-body.light-mode .product-button {
-  background-color: var(--bubble-user-light);
-}
-body.light-mode .product-button:hover {
-  background-color: #b5f7e6;
-}
+body.light-mode .product-button { background-color: var(--bubble-user-light); }
+body.light-mode .product-button:hover { background-color: #b5f7e6; }
 
 /* CTA Button Below Bot Message */
 .cta-button {
-  display: inline-block;
-  margin-top: 12px;
-  background-color: #ffc107;
-  color: #000;
-  padding: 10px 18px;
-  border-radius: 24px;
-  font-weight: bold;
-  font-size: 1rem;
-  text-decoration: none;
+  display: inline-block; margin-top: 12px;
+  background-color: #ffc107; color: #000;
+  padding: 10px 18px; border-radius: 24px;
+  font-weight: bold; font-size: 1rem; text-decoration: none;
   transition: background 0.3s ease;
 }
-.cta-button:hover {
-  background-color: #ffcd39;
-}
-.product-button:hover {
-  background-color: #ffcd39;
-  transform: translateX(5px);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-}
-.chatbot-message {
-  transition: all 0.3s ease;
-}
+.cta-button:hover { background-color: #ffcd39; }
 
 /* ===== Planville add-on (scoped, non-breaking) ===== */
 .pv-hero{position:relative;display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,0.6);backdrop-filter:saturate(1.1) blur(2px);margin:8px 8px 0}
@@ -375,13 +259,23 @@ body.light-mode .product-button:hover {
 /* Progress indicator */
 .funnel-progress{height:6px;background:#e5e7eb;border-radius:999px;margin:8px 8px 12px;overflow:hidden}
 .funnel-progress__bar{height:100%;width:0;background:#10b981;transition:width .3s ease}
+
 /* Quick reply buttons */
 .quick-group{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
 .quick-btn{padding:8px 12px;border-radius:999px;border:1px solid #cbd5e1;background:#fff;cursor:pointer}
 .quick-btn:hover{background:#f1f5f9}
+
 /* Exit bubble */
 .exit-bubble{background:#fff7ed;border-left:4px solid #fb923c;padding:10px 12px;border-radius:8px;margin:8px 0}
 
+/* Text input used by askInput() */
+.text-input{
+  flex:1; min-width: 180px;
+  padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--border-dark);
+  background: #fff; color: #000;
+}
+body.light-mode .text-input{ border-color: var(--border-light); }
 
 /* Ensure main chat input is visible */
 #chatbot-form { display:flex; gap: 8px; align-items: center; }
@@ -396,25 +290,35 @@ body.light-mode .product-button:hover {
   background: rgba(255,255,255,0.06);
   color: var(--text-dark);
 }
-body.light-mode #chatbot-input {
-  background: #fff;
-  color: var(--text-light);
-  border-color: #ced4da;
-}
-#chatbot-form button {
-  padding: 12px 14px;
-  border-radius: 10px;
-  border: none;
-  cursor: pointer;
-}
+body.light-mode #chatbot-input { background: #fff; color: var(--text-light); border-color: #ced4da; }
+#chatbot-form button { padding: 12px 14px; border-radius: 10px; border: none; cursor: pointer; }
 
-
-/* Hard kill any leftover intro/robot blocks */
-.pv-hero, [aria-label="Planville AI intro"], [aria-label="Planville Robot waving"], .pv-balloon {
-  display: none !important;
-  visibility: hidden !important;
-  width: 0 !important;
-  height: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
+/* Perspective-like Cards */
+.pv-card-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+  gap:12px; margin:8px 0;
 }
+.pv-card{
+  display:flex; flex-direction:column; align-items:flex-start;
+  gap:6px; padding:14px; border:1px solid #cbd5e1; border-radius:16px;
+  background:#fff; cursor:pointer; text-align:left;
+  box-shadow:0 2px 10px rgba(0,0,0,.04);
+  transition:transform .12s ease, box-shadow .12s ease, background .2s ease;
+}
+.pv-card:hover{ transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,.08); }
+.pv-card__emoji{ font-size:20px; line-height:1; opacity:.9 }
+.pv-card__label{ font-weight:600; color:#0f172a }
+body:not(.light-mode) .pv-card{ background:#111827; border-color:#334155; }
+body:not(.light-mode) .pv-card__label{ color:#e5e7eb; }
+
+/* Summary bubble (list style) */
+.summary-bubble{
+  background:#f8fafc; color:#0f172a;
+  border:1px solid #e2e8f0; border-radius:12px;
+  padding:10px 12px; margin:8px 0;
+}
+.summary-bubble ul{ margin:0; padding-left:18px; }
+.summary-bubble li{ margin:4px 0; }
+
+/* NOTE: kita HAPUS blok "Hard kill" agar intro bubble (.pv-balloon) tetap tampil seperti di screenshot */
