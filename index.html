@@ -106,8 +106,8 @@
     </div>
   </div>
 
-  <!-- ⚙️ AI guard + Chatbot (tetap pakai filemu) -->
-  <script defer src="ai_guardrails_vlite.js"></script>
+  <!-- ⚙️ AI guard (patched) + Chatbot -->
+  <script defer src="ai_guardrails_vlite.patched.js"></script>
   <script defer src="chatbot.js"></script>
 
   <!-- 🧠 GA4 & Event/Lead helpers + bootstrapping -->
@@ -135,7 +135,6 @@
         window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
       } catch(_) {}
       try {
-        // gunakan API helper
         fetch(_api("/track"), {
           method: "POST",
           headers: { "Content-Type":"application/json" },
@@ -226,32 +225,41 @@
         }
       }[lang||'de'];
 
-      const yesNo = (v) => v===true ? L.yes : (v===false ? L.no : (v ?? "-"));
-      const k = (x)=> (q[x] ?? "-");
+      const get = (keys) => {
+        const arr = Array.isArray(keys) ? keys : [keys];
+        for (const k of arr) {
+          const v = q?.[k];
+          if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+        }
+        return "-";
+      };
 
-      // Map field Perspective → label summary
-      const batteryYesNo = (q.storage_interest !== undefined)
-        ? (String(q.storage_interest).toLowerCase() === 'ja' ? L.yes :
-           String(q.storage_interest).toLowerCase() === 'yes' ? L.yes :
-           (String(q.storage_interest).toLowerCase() === 'nein' || String(q.storage_interest).toLowerCase() === 'no') ? L.no : (q.storage_interest ?? "-"))
-        : yesNo(q.battery_jn);
+      // battery yes/no (support flow baru: storage_interest)
+      const batteryYesNo = (() => {
+        const raw = get(["storage_interest","battery_jn"]);
+        if (raw === "-" ) return "-";
+        const t = String(raw).toLowerCase();
+        if (["ja","yes","true"].includes(t)) return L.yes;
+        if (["nein","no","false"].includes(t)) return L.no;
+        return raw;
+      })();
 
       return [
         `${L.product}: ${productLabel || "-"}`,
-        `${L.city}: ${k('city')}`,
-        `${L.plz}: ${k('plz')}`,
-        `${L.type}: ${k('prop_type') || k('immobilientyp') || k('install_location')}`,
-        `${L.roofForm}: ${k('roof_type') || k('roof_form') || k('dachform')}`,
-        `${L.area}: ${k('area_sqm') || k('dachflache_m2')}`,
-        `${L.orient}: ${k('orientation') || k('ausrichtung')}`,
-        `${L.pitch}: ${k('neigung_deg') || k('neigungswinkel')}`,
-        `${L.shade}: ${k('shading') || k('verschattung')}`,
-        `${L.cons}: ${k('consumption_kwh') || k('verbrauch_kwh')}`,
-        `${L.battery}: ${batteryYesNo}` + (q.battery_kwh ? ` (${q.battery_kwh} kWh)` : ""),
-        `${L.timeline}: ${k('install_timeline') || k('timeline') || k('zeitrahmen')}`,
-        `${L.contact}: ${k('contact_time_window')}`,
-        `${L.address}: ${k('property_street_number')}`
-      ].filter(Boolean).join(" • ");
+        `${L.city}: ${get(["city","ort","town","stadt"])}`,
+        `${L.plz}: ${get(["plz","zip","postal_code","postleitzahl"])}`,
+        `${L.type}: ${get(["prop_type","immobilientyp","install_location","installation_location","install_on"])}`,
+        `${L.roofForm}: ${get(["roof_type","roof_form","dachform"])}`,
+        `${L.area}: ${get(["area_sqm","dachflache_m2"])}`,
+        `${L.orient}: ${get(["orientation","ausrichtung"])}`,
+        `${L.pitch}: ${get(["neigung_deg","neigungswinkel"])}`,
+        `${L.shade}: ${get(["shading","verschattung"])}`,
+        `${L.cons}: ${get(["consumption_kwh","verbrauch_kwh"])}`,
+        `${L.battery}: ${batteryYesNo}` + (q?.battery_kwh ? ` (${q.battery_kwh} kWh)` : ""),
+        `${L.timeline}: ${get(["install_timeline","timeline","zeitrahmen"])}`,
+        `${L.contact}: ${get(["contact_time_window","contact_window"])}`,
+        `${L.address}: ${get(["property_street_number","address","adresse"])}`
+      ].join(" • ");
     }
 
     function showSummaryFromFunnel(qualification = {}) {
@@ -270,12 +278,27 @@
       trackFE("summary_view", { product: mapProduct(productLabel) });
     }
 
+    // live-update satu baris di summary terakhir (PLZ/Address)
+    function updateSummaryField(lang, key, value){
+      try{
+        const LABEL = (lang==="en")
+          ? { plz:"ZIP", address:"Address" }
+          : { plz:"PLZ", address:"Adresse" };
+        const bubble = [...document.querySelectorAll(".summary-bubble")].slice(-1)[0];
+        if (!bubble) return;
+        const ul = bubble.querySelector("ul"); if (!ul) return;
+        const label = LABEL[key];
+        const li = [...ul.querySelectorAll("li")]
+          .find(node => node.textContent.trim().startsWith(label + ":"));
+        if (li) li.textContent = `${label}: ${value && String(value).trim() ? value : "-"}`;
+      }catch(_){}
+    }
+
     /* ---------- Google Sheets logging (sendBeacon + no-cors fallback) ---------- */
     function logLeadToGoogleSheet(payload){
       if (!GS_WEBHOOK_URL) return;
       const data = JSON.stringify({ secret: GS_WEBHOOK_SECRET, data: payload });
 
-      // 1) Coba kirim pakai beacon (non-blocking, no CORS preflight)
       try {
         if (navigator.sendBeacon) {
           const blob = new Blob([data], { type: "text/plain;charset=utf-8" });
@@ -284,7 +307,6 @@
         }
       } catch (_) {}
 
-      // 2) Fallback fetch no-cors (response opaque itu normal)
       try {
         fetch(GS_WEBHOOK_URL, {
           method: "POST",
@@ -318,13 +340,10 @@
         meta: { lang, session_id: sessionId(), variant: (localStorage.getItem("ab_variant") || "A") }
       };
 
-      // FE analytics (gated)
       trackFE("contact_submit", { product, origin: origin||"unknown" });
 
-      // Send to Google Sheets (parallel, fire-and-forget)
       logLeadToGoogleSheet(payload);
 
-      // Send to backend (pakai helper API)
       const res = await fetch(_api("/lead"), {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
@@ -334,7 +353,7 @@
       return res.json();
     }
 
-    /* ---------- Mini contact form in chat (updated: +PLZ & prefill address) ---------- */
+    /* ---------- Mini contact form in chat (updated: +PLZ & live update) ---------- */
     let isSubmittingLead = false;
 
     function injectLeadContactFormChat(productLabel, qualification) {
@@ -366,26 +385,40 @@
       `;
       log.appendChild(wrap);
 
-      // Prefill address & PLZ from qualification (if present)
+      // Prefill + live-update summary (PLZ & Address)
+      const f = wrap.querySelector("#lead-contact-form-chat");
+      const elAddr = f.querySelector("#c_addr");
+      const elPlz  = f.querySelector("#c_plz");
+
       try {
         const addr = qualification?.property_street_number ? String(qualification.property_street_number) : "";
-        if (addr) wrap.querySelector("#c_addr").value = addr;
+        if (addr) elAddr.value = addr, updateSummaryField(lang, "address", addr);
         const plz = qualification?.plz ? String(qualification.plz) : "";
-        if (plz) wrap.querySelector("#c_plz").value = plz;
+        if (plz) elPlz.value = plz, updateSummaryField(lang, "plz", plz);
       } catch(_) {}
 
-      const form = wrap.querySelector("#lead-contact-form-chat");
-      const btn  = form.querySelector('button[type="submit"]');
+      elPlz.addEventListener("input", e=>{
+        const v = (e.target.value||"").trim();
+        if (qualification && typeof qualification === "object") qualification.plz = v;
+        updateSummaryField(lang, "plz", v);
+      });
+      elAddr.addEventListener("input", e=>{
+        const v = (e.target.value||"").trim();
+        if (qualification && typeof qualification === "object") qualification.property_street_number = v;
+        updateSummaryField(lang, "address", v);
+      });
 
-      form.addEventListener("submit", async (e)=>{
+      const btn  = f.querySelector('button[type="submit"]');
+      f.addEventListener("submit", async (e)=>{
         e.preventDefault();
-        if (isSubmittingLead) return; // anti double submit
-        const name  = form.querySelector("#c_name").value.trim();
-        const addr  = form.querySelector("#c_addr").value.trim();
-        const plz   = form.querySelector("#c_plz").value.trim();
-        const email = form.querySelector("#c_email").value.trim();
-        const phone = form.querySelector("#c_phone").value.trim();
-        const ok    = form.querySelector("#c_consent").checked;
+        if (isSubmittingLead) return;
+
+        const name  = f.querySelector("#c_name").value.trim();
+        const addr  = elAddr.value.trim();
+        const plz   = elPlz.value.trim();
+        const email = f.querySelector("#c_email").value.trim();
+        const phone = f.querySelector("#c_phone").value.trim();
+        const ok    = f.querySelector("#c_consent").checked;
 
         if (!ok) { alert(lang==="de"?"Bitte Zustimmung erteilen.":"Please give consent."); return; }
         if (!validEmail(email)) { alert(lang==="de"?"Bitte eine gültige E-Mail-Adresse eintragen.":"Please enter a valid email."); return; }
@@ -393,7 +426,6 @@
         // inject PLZ ke qualification agar ikut payload
         try { if (qualification && typeof qualification === "object") qualification.plz = plz; } catch(_){}
 
-        // UI state
         isSubmittingLead = true;
         const original = btn.textContent;
         btn.disabled = true;
@@ -418,7 +450,7 @@
       });
     }
 
-    /* ---------- Dipanggil saat user memilih timeline (legacy support) ---------- */
+    /* ---------- Dipanggil saat user memilih timeline ---------- */
     window.onTimelineSelected = function(timelineValue){
       const lang = getLang();
 
@@ -429,16 +461,16 @@
         ? { ...window.Funnel.state.data, timeline: timelineValue }
         : { timeline: timelineValue, product_label: productLabel };
 
-      // Tampilkan SUMMARY lebih dulu → lalu form
-      showSummaryFromFunnel(qualification);
-
+      // 1) Pesan biru dulu
       appendMessage?.(
         lang==="de"
           ? "Super, dann sind wir fast fertig. Bitte trage deine Kontaktdaten ein:"
           : "Great, we’re almost done. Please enter your contact details:",
         "bot"
       );
-
+      // 2) Summary di bawah pesan
+      showSummaryFromFunnel(qualification);
+      // 3) Lalu form
       injectLeadContactFormChat(productLabel, qualification);
 
       trackFE("contact_open", { product: mapProduct(productLabel), timeline: timelineValue });
@@ -462,9 +494,7 @@
         meta: { lang, session_id: sessionId(), variant: (localStorage.getItem("ab_variant") || "A") }
       };
       try {
-        // log ke Sheets juga (fire-and-forget)
         logLeadToGoogleSheet(payload);
-        // pakai helper API
         fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
       } catch(_){}
       trackFE("disqualify", { product: payload.product, reason: payload.qualification.disqualify_reason });
