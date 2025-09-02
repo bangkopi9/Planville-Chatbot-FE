@@ -76,12 +76,35 @@ const I18N = {
   askContactDone: (lang) =>
     lang === "de"
       ? "Danke! Unser Team meldet sich zeitnah. Möchtest du direkt einen Termin wählen?"
-      : "Thanks! Our team will contact you soon. Would you like to pick a time now?"
+      : "Thanks! Our team will contact you soon. Would you like to pick a time now?",
+  // 👉 NEW: CTA & overlay texts
+  startNow: { de: "Jetzt starten", en: "Start now" },
+  contactOverlay: {
+    de: {
+      title:"Schnellkontakt",
+      name:"Name",
+      addr:"Adresse (Straße + Nr.)",
+      plz:"PLZ",
+      phone:"Telefonnummer",
+      best:"Am besten erreichbar",
+      submit:"Absenden",
+      cancel:"Abbrechen"
+    },
+    en: {
+      title:"Quick contact",
+      name:"Name",
+      addr:"Address (Street + No.)",
+      plz:"ZIP",
+      phone:"Phone number",
+      best:"Best time to reach",
+      submit:"Submit",
+      cancel:"Cancel"
+    }
+  }
 };
 
 // ====== i18n for questions/prompts (legacy + perspective) ======
 const Q = {
-  // (legacy keys masih disimpan untuk kompatibilitas)
   owner_q: { de: 'Bist du Eigentümer:in der Immobilie?', en: 'Are you the owner of the property?' },
   occupy_q:{ de: 'Wohnst du selbst in der Immobilie?',    en: 'Do you live in the property yourself?' },
 
@@ -190,9 +213,7 @@ window.addEventListener("load", () => {
 
   showChatArea();
   chatStarted = true;
-
-  // ❗ No auto greeting here — index.html already pushes the first greeting.
-  // startGreetingFlow();  ← removed to avoid duplicate greeting bubbles
+  // (no auto greeting here; index.html already appends one)
 
   if (pvHero) {
     pvHero.style.cursor = "pointer";
@@ -200,7 +221,6 @@ window.addEventListener("load", () => {
       if (!chatStarted) {
         chatStarted = true;
         showChatArea();
-        // startGreetingFlow(); // still avoid duplicate
         const __sb = document.querySelector('.faq-sidebar');
         if (__sb) __sb.style.display = 'none';
         const __fl = document.getElementById('faq-list');
@@ -265,7 +285,6 @@ if (form) {
     if (!chatStarted) {
       chatStarted = true;
       showChatArea();
-      // startGreetingFlow(false); // avoid duplicate
     }
 
     const question = (input.value || "").trim();
@@ -320,6 +339,9 @@ if (form) {
       const formAlreadyShown = !!document.getElementById("lead-contact-form-chat");
       if (inFunnel && !formAlreadyShown) {
         nudgeToFormFromInterrupt(selectedLang);
+      } else if (!inFunnel) {
+        // 👉 NEW: chat bebas → tampilkan CTA "Jetzt starten"
+        maybeShowStartCTA(selectedLang);
       }
 
       track('chat_message', { q_len: question.length, lang: selectedLang });
@@ -478,6 +500,14 @@ function showProductOptions() {
 // ========================
 function handleProductSelection(key) {
   const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
+
+  // bersihkan CTA/modal ketika user pindah ke funnel
+  try {
+    const overlay = document.getElementById("contact-overlay");
+    if (overlay) overlay.remove();
+    const cta = document.getElementById("start-cta");
+    if (cta) cta.remove();
+  } catch(_){}
 
   // set state dasar
   Funnel.reset();
@@ -700,7 +730,12 @@ function exitWith(reason) {
   Funnel.state.data.qualified = false;
   Funnel.state.data.disqualifyReason = reason;
 
-  const txt = Q.disq_txt[lang];
+  const txt = Q.disq_txt && Q.disq_txt[lang]
+    ? Q.disq_txt[lang]
+    : (lang==="de"
+        ? 'Danke für dein Interesse! Leider können wir dir basierend auf deinen Angaben keine passende Dienstleistung anbieten.'
+        : 'Thanks for your interest! Based on your answers we currently have no matching service.');
+
   const div = document.createElement('div');
   div.className = 'exit-bubble';
   div.innerText = txt;
@@ -861,7 +896,7 @@ function askNext() {
     return askCards(Q.contact_time_q[lang], opts, 'contact_time_window');
   }
 
-  // 10) PESAN BIRU → SUMMARY → FORM (sesuai request)
+  // 10) PESAN BIRU → SUMMARY → FORM
   if (!d.__done_perspective_summary) {
     d.__done_perspective_summary = true;
 
@@ -913,6 +948,134 @@ function nudgeToFormFromInterrupt(lang) {
       );
     }
   } catch(_) {}
+}
+
+// ========================
+// ✨ NEW: CTA "Jetzt starten" + Floating overlay
+// ========================
+function maybeShowStartCTA(lang){
+  try{
+    if (document.getElementById("start-cta")) return; // already there
+    const btn = document.createElement("button");
+    btn.id = "start-cta";
+    btn.className = "cta-button start-cta";
+    btn.type = "button";
+    btn.textContent = (I18N.startNow?.[lang]) || I18N.startNow.de;
+    btn.onclick = () => {
+      const productLabel =
+        (window.Funnel?.state?.productLabel) ||
+        (document.querySelector(".product-button.selected")?.textContent?.trim()) ||
+        (lang==="en" ? "Photovoltaic" : "Photovoltaik");
+      const qualification = window.Funnel?.state?.data ? { ...window.Funnel.state.data } : {};
+      showFloatingContactOverlay(productLabel, qualification, lang);
+      track("cta_start_click", { from:"generic_chat", lang });
+    };
+    chatLog.appendChild(btn);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    track("cta_start_shown", { from:"generic_chat", lang });
+  }catch(_){}
+}
+
+function ensureOverlayStyles(){
+  if (document.getElementById("contact-overlay-styles")) return;
+  const css = `
+  #contact-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999}
+  #contact-overlay .contact-modal{position:relative;background:#111b16;color:#e9f1ed;width:min(520px,92vw);border-radius:18px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.4);border:1px solid #2e4b3f}
+  #contact-overlay h3{margin:0 0 10px;font-size:1.1rem}
+  #contact-overlay .contact-close{position:absolute;top:10px;right:14px;font-size:22px;line-height:1;background:transparent;border:none;color:#e9f1ed;cursor:pointer}
+  #contact-overlay input,#contact-overlay select{width:100%;margin:6px 0;padding:10px 12px;border-radius:10px;border:1px solid #29473c;background:#0f1a15;color:#e9f1ed}
+  #contact-overlay .contact-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:10px}
+  #contact-overlay .btn-cancel{background:#2a2f2d;color:#e9f1ed;border:none;padding:10px 14px;border-radius:10px;cursor:pointer}
+  #contact-overlay .btn-submit{background:#ff9f1c;color:#111;border:none;padding:10px 14px;border-radius:10px;cursor:pointer}
+  .start-cta{display:inline-block;margin:8px 0 0}
+  `;
+  const s = document.createElement("style");
+  s.id = "contact-overlay-styles";
+  s.textContent = css;
+  document.head.appendChild(s);
+}
+
+function showFloatingContactOverlay(productLabel, qualification={}, lang){
+  ensureOverlayStyles();
+
+  const old = document.getElementById("contact-overlay");
+  if (old) old.remove();
+
+  const L = (I18N.contactOverlay?.[lang]) || I18N.contactOverlay.de;
+  const overlay = document.createElement("div");
+  overlay.id = "contact-overlay";
+  overlay.innerHTML = `
+    <div class="contact-modal">
+      <button class="contact-close" aria-label="Close">×</button>
+      <h3>${L.title}</h3>
+      <form id="contact-float-form">
+        <input type="text" id="f_name"  placeholder="${L.name}" required />
+        <input type="text" id="f_addr"  placeholder="${L.addr}" required />
+        <input type="text" id="f_plz"   placeholder="${L.plz}" required />
+        <input type="tel"  id="f_phone" placeholder="${L.phone}" required />
+        <select id="f_best" required>
+          ${(lang==="de"
+              ? ["08:00–12:00","12:00–16:00","16:00–20:00","Egal / zu jeder Zeit"]
+              : ["08:00–12:00","12:00–16:00","16:00–20:00","Any time"]
+            ).map(t=>`<option value="${t}">${t}</option>`).join("")}
+        </select>
+        <div class="contact-actions">
+          <button type="button" class="btn-cancel">${L.cancel}</button>
+          <button type="submit" class="btn-submit">${L.submit}</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Prefill
+  try{
+    if (qualification?.property_street_number) overlay.querySelector("#f_addr").value = qualification.property_street_number;
+    if (qualification?.plz) overlay.querySelector("#f_plz").value = qualification.plz;
+    if (qualification?.contact_time_window) overlay.querySelector("#f_best").value = qualification.contact_time_window;
+  }catch(_){}
+
+  const close = () => overlay.remove();
+  overlay.querySelector(".contact-close").onclick = close;
+  overlay.querySelector(".btn-cancel").onclick = close;
+  overlay.addEventListener("click", (e)=>{ if (e.target.id==="contact-overlay") close(); });
+
+  const form = overlay.querySelector("#contact-float-form");
+  form.addEventListener("submit", async (e)=>{
+    e.preventDefault();
+    const name  = form.querySelector("#f_name").value.trim();
+    const addr  = form.querySelector("#f_addr").value.trim();
+    const plz   = form.querySelector("#f_plz").value.trim();
+    const phone = form.querySelector("#f_phone").value.trim();
+    const best  = form.querySelector("#f_best").value;
+
+    const q = { ...(qualification||{}) };
+    q.property_street_number = addr;
+    q.plz = plz;
+    q.contact_time_window = best;
+
+    try{
+      track("contact_overlay_submit", { product: productLabel, lang });
+      if (typeof window.sendLeadToBackend === "function") {
+        await window.sendLeadToBackend({
+          productLabel,
+          name,
+          address: addr,
+          email: "web@lead.invalid",
+          phone,
+          origin: "floating-cta",
+          qualification: q
+        });
+      }
+      appendMessage(lang==="de" ? "Danke! Wir melden uns in Kürze." : "Thank you! We’ll contact you shortly.", "bot");
+      close();
+      const cta = document.getElementById("start-cta");
+      if (cta) cta.remove();
+    }catch(err){
+      console.error(err);
+      appendMessage(lang==="de" ? "Senden fehlgeschlagen. Bitte später erneut versuchen." : "Submission failed. Please try again later.", "bot");
+    }
+  });
 }
 
 // ========================
