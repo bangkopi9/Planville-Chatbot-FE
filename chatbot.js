@@ -1,4 +1,14 @@
 // ========================
+// ✅ PLANVILLE CHATBOT – SAFE DROP-IN (2025-09-03)
+// - Fix syntax errors (no stray tokens)
+// - Single nudgeToFormFromInterrupt (no duplicate)
+// - Full product funnels: pv, heatpump, aircon, roof, tenant, window
+// - Mobile-ready: ensure <meta name="viewport"> injected
+// - Auto-greeting (guarded to avoid duplicates)
+// ========================
+
+
+// ========================
 // 🔧 Helpers & Config
 // ========================
 function _baseURL() {
@@ -79,7 +89,7 @@ const I18N = {
       : "Thanks! Our team will contact you soon. Would you like to pick a time now?"
 };
 
-// ====== i18n for questions/prompts (legacy + perspective) ======
+// ====== i18n for questions/prompts ======
 const Q = {
   // (legacy)
   owner_q: { de: 'Bist du Eigentümer:in der Immobilie?', en: 'Are you the owner of the property?' },
@@ -156,13 +166,27 @@ const pvBalloon = document.querySelector(".pv-balloon span");
 // ========================
 let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
 let chatStarted = false;
-let __lastOrigin = "chat";  // 'chat' | 'faq'
+let __lastOrigin = "chat"; // 'chat' | 'faq'
+
+// ========================
+// 📱 Ensure mobile viewport (if missing)
+// ========================
+function ensureViewportMeta() {
+  if (!document.querySelector('meta[name="viewport"]')) {
+    const m = document.createElement('meta');
+    m.name = 'viewport';
+    m.content = 'width=device-width, initial-scale=1, viewport-fit=cover';
+    document.head.appendChild(m);
+  }
+}
 
 // ========================
 // 🚀 Init on load
 // ========================
 window.addEventListener("load", () => {
-  const selectedLang = localStorage.getItem("selectedLang") || (CONFIG.LANG_DEFAULT || "de");
+  ensureViewportMeta();
+
+  const selectedLang = localStorage.getItem("selectedLang") || (CONFIG?.LANG_DEFAULT || "de");
   if (langSwitcher) langSwitcher.value = selectedLang;
 
   // kill old left balloon (white area)
@@ -184,6 +208,13 @@ window.addEventListener("load", () => {
 
   showChatArea();
   chatStarted = true;
+
+  // Auto-greeting, but avoid duplicates if anything is already in the log
+  const hasContent = chatLog && chatLog.children && chatLog.children.length > 0;
+  const hasProducts = document.getElementById("product-options-block");
+  if (!hasContent && !hasProducts) {
+    startGreetingFlow(true);
+  }
 });
 
 // Show/Hide chat area helpers
@@ -239,7 +270,7 @@ if (form) {
     }
 
     const question = (input.value || "").trim();
-    const selectedLang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
+    const selectedLang = (langSwitcher && langSwitcher.value) || (CONFIG?.LANG_DEFAULT || "de");
     if (!question) return;
 
     appendMessage(question, "user");
@@ -315,7 +346,7 @@ if (form) {
 // 🧰 Greeting flow
 // ========================
 function startGreetingFlow(withProducts = true) {
-  const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
+  const lang = (langSwitcher && langSwitcher.value) || (CONFIG?.LANG_DEFAULT || "de");
   updateUITexts(lang);
   if (!withProducts) {
     const productBlock = document.getElementById("product-options-block");
@@ -422,7 +453,7 @@ function updateUITexts(lang) {
 // 🔘 Show Product Bubble
 // ========================
 function showProductOptions() {
-  const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
+  const lang = (langSwitcher && langSwitcher.value) || (CONFIG?.LANG_DEFAULT || "de");
   const keys = ["pv", "aircon", "heatpump", "tenant", "roof", "window"];
   const existing = document.getElementById("product-options-block");
   if (existing) existing.remove();
@@ -456,7 +487,7 @@ function showProductOptions() {
 // 🧩 Product Click -> router
 // ========================
 function handleProductSelection(key) {
-  const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
+  const lang = (langSwitcher && langSwitcher.value) || (CONFIG?.LANG_DEFAULT || "de");
 
   Funnel.reset();
   Funnel.state.product = key;
@@ -473,7 +504,7 @@ function handleProductSelection(key) {
 // ========================
 function detectIntent(text) {
   const lower = (text || "").toLowerCase();
-  const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
+  const lang = (langSwitcher && langSwitcher.value) || (CONFIG?.LANG_DEFAULT || "de");
 
   // Price intent → short answer + CTA
   if (lower.includes("harga") || lower.includes("kosten") || lower.includes("cost") || lower.includes("price")) {
@@ -506,7 +537,7 @@ function detectIntent(text) {
 // 🧾 Mini Lead Form (quick)
 // ========================
 function injectLeadMiniForm() {
-  const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
+  const lang = (langSwitcher && langSwitcher.value) || (CONFIG?.LANG_DEFAULT || "de");
   const container = document.createElement("div");
   container.className = "chatbot-message bot-message";
   container.innerHTML = `
@@ -1047,7 +1078,7 @@ function askNextWindow() {
 }
 
 // ========================
-// ✅ NUDGE / Interrupt handling
+// ✅ NUDGE / Interrupt handling (single source of truth)
 // ========================
 function nudgeToFormFromInterrupt(lang) {
   try {
@@ -1132,7 +1163,7 @@ function removeInlineOptions(){
 }
 
 // ========================
-// 🧊 Floating Form (modal)
+// 🧊 Floating Form (modal) – used as fallback if no embed form
 // ========================
 function openLeadFloatForm(productLabel, qualification) {
   if (document.getElementById('lead-float-overlay')) return;
@@ -1186,7 +1217,7 @@ function openLeadFloatForm(productLabel, qualification) {
     if (qualification?.property_street_number) ov.querySelector('#lf_addr').value = String(qualification.property_street_number);
     if (qualification?.plz) ov.querySelector('#lf_plz').value = String(qualification.plz);
     if (qualification?.contact_time_window) ov.querySelector('#lf_best').value = String(qualification.contact_time_window);
-  }catch(_){}}
+  }catch(_){}
 
   ov.querySelector('#lf_cancel').onclick = () => ov.remove();
 
@@ -1215,31 +1246,6 @@ function openLeadFloatForm(productLabel, qualification) {
       ov.remove();
     }
   });
-}
-
-// ========================
-// ✅ NUDGE: guard stop / user interrupt (legacy entry)
-// ========================
-function nudgeToFormFromInterrupt(lang) {
-  try {
-    if (document.getElementById("lead-contact-form-chat") || document.getElementById("lead-float-overlay")) return;
-
-    const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
-    const qualification = (window.Funnel?.state?.data) || {};
-
-    const msg = (lang === "de")
-      ? "Alles klar! Dann bräuchten wir nur noch deine Kontaktdaten:"
-      : "All right! We just need your contact details:";
-    appendMessage(msg, "bot");
-
-    if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(qualification);
-
-    if (typeof window.injectLeadContactFormChat === "function") {
-      window.injectLeadContactFormChat(productLabel, qualification);
-    } else {
-      openLeadFloatForm(productLabel, qualification);
-    }
-  } catch(_) {}
 }
 
 // ========================
