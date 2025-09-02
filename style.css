@@ -321,4 +321,39 @@ body:not(.light-mode) .pv-card__label{ color:#e5e7eb; }
 .summary-bubble ul{ margin:0; padding-left:18px; }
 .summary-bubble li{ margin:4px 0; }
 
+
+/* CTA kecil di chat */
+.start-cta{ display:inline-block; margin:8px 0 0; }
+
+/* Floating Overlay */
+#contact-overlay{
+  position:fixed; inset:0; background:rgba(0,0,0,.45);
+  display:flex; align-items:center; justify-content:center;
+  z-index:9999;
+}
+#contact-overlay .contact-modal{
+  background:#111b16; color:#e9f1ed; width:min(520px, 92vw);
+  border-radius:18px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.4);
+  border:1px solid #2e4b3f;
+}
+#contact-overlay h3{ margin:0 0 10px; font-size:1.1rem; }
+#contact-overlay .contact-close{
+  position:absolute; top:10px; right:14px; font-size:22px; line-height:1;
+  background:transparent; border:none; color:#e9f1ed; cursor:pointer;
+}
+#contact-overlay input, #contact-overlay select{
+  width:100%; margin:6px 0; padding:10px 12px; border-radius:10px;
+  border:1px solid #29473c; background:#0f1a15; color:#e9f1ed;
+}
+#contact-overlay .contact-actions{
+  display:flex; gap:10px; justify-content:flex-end; margin-top:10px;
+}
+#contact-overlay .btn-cancel{
+  background:#2a2f2d; color:#e9f1ed; border:none; padding:10px 14px; border-radius:10px; cursor:pointer;
+}
+#contact-overlay .btn-submit{
+  background:#ff9f1c; color:#111; border:none; padding:10px 14px; border-radius:10px; cursor:pointer;
+}
+
+
 /* NOTE: kita HAPUS blok "Hard kill" agar intro bubble (.pv-balloon) tetap tampil seperti di screenshot */
