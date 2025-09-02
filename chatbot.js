@@ -422,7 +422,7 @@ function updateUITexts(lang) {
 // ========================
 function showProductOptions() {
   const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
-  const keys = ["pv", "aircon", "heatpump", "tenant", "roof"];
+  const keys = ["pv", "aircon", "heatpump", "tenant", "roof", "window"];
   const existing = document.getElementById("product-options-block");
   if (existing) existing.remove();
 
@@ -686,7 +686,8 @@ const Funnel = {
       aircon: ['building_type','rooms_count','cool_area','install_timeline','property_street_number','contact_time_window'],
       roof: ['roof_type','area_sqm','issues','install_timeline','property_street_number','contact_time_window'],
       tenant: ['building_type','units','ownership','install_timeline','property_street_number','contact_time_window']
-    };
+    ,
+      window: ['window_type','window_count','needs_balcony_door','window_accessory','install_timeline','plz','contact_time_window']};
     const needed = mapNeeded[this.state.product] || [];
     const answered = needed.filter(k => d[k] !== undefined && d[k] !== null && d[k] !== '').length;
     const percent = needed.length ? Math.min(100, Math.round((answered/needed.length)*100)) : 0;
@@ -719,7 +720,9 @@ function askNext() {
     case 'aircon': return askNextAC();
     case 'roof': return askNextRoof();
     case 'tenant': return askNextTenant();
-    default: return;
+    
+    case 'window': return askNextWindow();
+default: return;
   }
 }
 
@@ -805,8 +808,15 @@ function askNextHP() {
       .map((t,i)=>({label:t, value:t.toLowerCase().replace(/\s/g,'_'), emoji:['🏠','🏠','🏘️','🏢','🏭'][i]}));
     return askCards(lang==="de"?'Welcher Gebäudetyp?':'What building type?', opts, 'building_type');
   }
+  
   if (d.living_area === undefined) {
-    return askInput(lang==="de"?'Wohnfläche (m²)?':'Living area (m²)?','living_area', v => /^\d{2,5}$/.test(String(v||"").trim()));
+    const opts = (lang==="de"
+      ? ['bis 100 m²','101–200 m²','201–300 m²','über 300 m²']
+      : ['up to 100 m²','101–200 m²','201–300 m²','over 300 m²'])
+      .map((t,i)=>({ label:t, value:['<=100','101-200','201-300','>300'][i] }));
+    return askCards(lang==="de"?'Wohnfläche?' : 'Living area?', opts, 'living_area');
+  }
+        $/.test(String(v||"").trim()));
   }
   if (d.heating_type === undefined) {
     const opts = (lang==="de" ? ['Gas','Öl','Stromdirekt','Andere'] : ['Gas','Oil','Direct electric','Other'])
@@ -855,11 +865,23 @@ function askNextAC() {
       .map((t,i)=>({label:t, value:t.toLowerCase().replace(/\s/g,'_'), emoji:['🏠','🏢','💼','🏭'][i]}));
     return askCards(lang==="de"?'Welcher Gebäudetyp?':'What building type?', opts, 'building_type');
   }
+  
   if (d.rooms_count === undefined) {
-    return askInput(lang==="de"?'Anzahl zu kühlender Räume?':'Number of rooms to cool?','rooms_count', v => /^\d{1,2}$/.test(String(v||"").trim()));
+    const opts = (lang==="de" ? ['1 Raum','2 Räume','3 Räume','mehr als 3'] : ['1 room','2 rooms','3 rooms','more than 3'])
+      .map((t,i)=>({ label:t, value:['1','2','3','>3'][i] }));
+    return askCards(lang==='de' ? 'Wie viele Räume?' : 'How many rooms?', opts, 'rooms_count');
   }
+        $/.test(String(v||"").trim()));
+  }
+  
   if (d.cool_area === undefined) {
-    return askInput(lang==="de"?'Zu kühlende Fläche (m²)?':'Cooling area (m²)?','cool_area', v => /^\d{1,5}$/.test(String(v||"").trim()));
+    const opts = (lang==="de"
+      ? ['bis 30 m²','31–60 m²','61–100 m²','über 100 m²']
+      : ['up to 30 m²','31–60 m²','61–100 m²','over 100 m²'])
+      .map((t,i)=>({ label:t, value:['<=30','31-60','61-100','>100'][i] }));
+    return askCards(lang==='de' ? 'Zu kühlende Fläche?' : 'Cooling area?', opts, 'cool_area');
+  }
+        $/.test(String(v||"").trim()));
   }
   if (d.install_timeline === undefined) {
     const opts = (lang==="de"
@@ -885,6 +907,64 @@ function askNextAC() {
   }
 }
 
+
+// ===== Window (Fenster) flow =====
+function askNextWindow() {
+  const lang = (langSwitcher && langSwitcher.value) || "de";
+  const d = Funnel.state.data;
+  Funnel.progressByFields();
+
+  if (d.window_type === undefined) {
+    const opts = (lang==="de"
+      ? ['Standardfenster','Dachfenster','Schiebefenster','Andere']
+      : ['Standard window','Roof window','Sliding window','Other'])
+      .map(t => ({ label: t, value: t.toLowerCase().replace(/\s/g,'_'), emoji: '🪟' }));
+    return askCards(lang==="de" ? 'Welche Art von Fenster?' : 'Which type of window?', opts, 'window_type');
+  }
+  if (d.window_count === undefined) {
+    const opts = (lang==="de" ? ['1–3','4–7','8+'] : ['1–3','4–7','8+'])
+      .map(t => ({ label: t, value: t.replace(/\s/g,'') }));
+    return askCards(lang==="de" ? 'Wie viele Fenster?' : 'How many windows?', opts, 'window_count');
+  }
+  if (d.needs_balcony_door === undefined) {
+    const opts = (lang==="de" ? ['Ja','Nein'] : ['Yes','No'])
+      .map((t,i)=>({ label: t, value: (i===0), emoji: (i===0?'🚪':'❌') }));
+    return askCards(lang==="de" ? 'Brauchst du eine Balkon-/Schiebetür?' : 'Do you need a balcony/sliding door?', opts, 'needs_balcony_door');
+  }
+  if (d.window_accessory === undefined) {
+    const opts = (lang==="de"
+      ? ['Rollladen','Insektenschutz','Keins','Sonstiges']
+      : ['Roller shutter','Insect screen','None','Other'])
+      .map(t => ({ label: t, value: t.toLowerCase().replace(/\s/g,'_') }));
+    return askCards(lang==="de" ? 'Zubehör benötigt?' : 'Any accessories needed?', opts, 'window_accessory');
+  }
+  if (d.install_timeline === undefined) {
+    const opts = (lang==="de"
+      ? [{label:'Schnellstmöglich', value:'asap'},{label:'4–6 Monate', value:'4-6'},{label:'>6 Monate', value:'>6'}]
+      : [{label:'ASAP', value:'asap'},{label:'4–6 months', value:'4-6'},{label:'>6 months', value:'>6'}]);
+    return askCards(lang==="de" ? 'Zeitplan für das Projekt?' : 'Project timeline?', opts, 'install_timeline');
+  }
+  if (d.plz === undefined) {
+    return askInput(Q.plz_q[lang], 'plz', v => /^\d{4,5}$/.test(String(v||"").trim()));
+  }
+  if (d.contact_time_window === undefined) {
+    const opts = (lang==="de"
+      ? ['08:00–12:00','12:00–16:00','16:00–20:00','Egal / zu jeder Zeit']
+      : ['08:00–12:00','12:00–16:00','16:00–20:00','Any time'])
+      .map(t => ({label:t, value:t}));
+    return askCards(Q.contact_time_q[lang], opts, 'contact_time_window');
+  }
+  if (!d.__window_done) {
+    d.__window_done = true;
+    appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
+    if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
+    if (typeof window.injectLeadContactFormChat === "function") window.injectLeadContactFormChat(Funnel.state.productLabel || "Fenster", d);
+  }
+}
+
+
+
+
 // ===== Roof Renovation flow =====
 function askNextRoof() {
   const lang = (langSwitcher && langSwitcher.value) || "de";
@@ -896,8 +976,15 @@ function askNextRoof() {
       .map(t => ({label:t, value:t.toLowerCase(), emoji:'🏚️'}));
     return askCards(lang==="de"?'Dachform?':'Roof type?', opts, 'roof_type');
   }
+  
   if (d.area_sqm === undefined) {
-    return askInput(lang==="de"?'Dachfläche (m²) ca.?':'Approx. roof area (m²)?','area_sqm', v => /^\d{2,5}$/.test(String(v||"").trim()));
+    const opts = (lang==="de"
+      ? ['bis 50 m²','51–100 m²','101–200 m²','über 200 m²']
+      : ['up to 50 m²','51–100 m²','101–200 m²','over 200 m²'])
+      .map((t,i)=>({ label:t, value:['<=50','51-100','101-200','>200'][i] }));
+    return askCards(lang==='de' ? 'Dachfläche (ca.)?' : 'Approx. roof area?', opts, 'area_sqm');
+  }
+        $/.test(String(v||"").trim()));
   }
   if (d.issues === undefined) {
     const opts = (lang==="de" ? ['Undicht','Beschädigt','Alterung','Nur Inspektion'] : ['Leaking','Damaged','Aged','Inspection only'])
@@ -939,8 +1026,15 @@ function askNextTenant() {
       .map((t,i)=>({label:t, value:t.toLowerCase().replace(/\s/g,'_'), emoji:['🏢','🏭'][i]}));
     return askCards(Q.building_type_q[lang], opts, 'building_type');
   }
+  
   if (d.units === undefined) {
-    return askInput(lang==="de"?'Anzahl Wohneinheiten?':'Number of units?','units', v => /^\d{1,3}$/.test(String(v||"").trim()));
+    const opts = (lang==="de"
+      ? ['1–3','4–10','11–20','über 20']
+      : ['1–3','4–10','11–20','over 20'])
+      .map((t,i)=>({ label:t, value:['1-3','4-10','11-20','>20'][i] }));
+    return askCards(lang==='de' ? 'Anzahl Wohneinheiten?' : 'Number of units?', opts, 'units');
+  }
+        $/.test(String(v||"").trim()));
   }
   if (d.ownership === undefined) {
     const opts = (lang==="de" ? ['Ja','Nein'] : ['Yes','No'])
