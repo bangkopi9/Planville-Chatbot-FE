@@ -6,12 +6,13 @@ function _baseURL() {
     let b = (typeof CONFIG !== "undefined" && CONFIG.BASE_API_URL) ? CONFIG.BASE_API_URL.trim() : "";
     if (!b) return "";
     if (!/^https?:\/\//i.test(b)) b = "https://" + b;
-    return b.endsWith("/") ? b.slice(0, -1) : b;
+    return b.replace(/\/+$/,"");
   } catch (e) { return ""; }
 }
-function _api(path) {
-  if (typeof apiURL === "function") return apiURL(path);
-  return _baseURL() + path;
+function _api(path = "") {
+  const base = _baseURL();
+  const p = String(path || "");
+  return base + (p.startsWith("/") ? p : "/" + p);
 }
 function _getConsentState(){
   try {
@@ -78,8 +79,9 @@ const I18N = {
       : "Thanks! Our team will contact you soon. Would you like to pick a time now?"
 };
 
-// ====== i18n for questions/prompts (funnel) ======
+// ====== i18n for questions/prompts (legacy + perspective) ======
 const Q = {
+  // (legacy keys masih disimpan untuk kompatibilitas)
   owner_q: { de: 'Bist du Eigentümer:in der Immobilie?', en: 'Are you the owner of the property?' },
   occupy_q:{ de: 'Wohnst du selbst in der Immobilie?',    en: 'Do you live in the property yourself?' },
 
@@ -106,7 +108,18 @@ const Q = {
   disq_txt: { 
     de:'Danke für dein Interesse! Aufgrund deiner Antworten können wir dir leider keine passende Dienstleistung anbieten. Schau aber gerne mal auf unserer Webseite vorbei!',
     en:'Thanks for your interest! Based on your answers we currently have no matching service. Feel free to check our website!'
-  }
+  },
+
+  // ===== Perspective Quick-Check (PV) =====
+  install_location_q: { de: 'Worauf soll die Solaranlage installiert werden?', en: 'Where should the PV system be installed?' },
+  building_type_q:    { de: 'Um welchen Gebäudetyp handelt es sich?',           en: 'What is the building subtype?' },
+  self_occupied_q:    { de: 'Bewohnst Du die Immobilie selbst?',                en: 'Do you live in the property yourself?' },
+  ownership_q:        { de: 'Bist Du Eigentümer:in der Immobilie?',             en: 'Are you the owner of the property?' },
+  roof_type_q:        { de: 'Was für ein Dach hast Du?',                        en: 'What roof type do you have?' },
+  storage_interest_q: { de: 'Möchtest Du die Anlage durch einen Stromspeicher ergänzen?', en: 'Would you like to add a battery storage?' },
+  install_timeline_q: { de: 'Wann soll deine Solaranlage installiert werden?',  en: 'When should the system be installed?' },
+  property_street_q:  { de: 'Wo steht die Immobilie? (Straße + Hausnummer)',    en: 'Where is the property? (Street + No.)' },
+  contact_time_q:     { de: 'Wann bist Du am besten zu erreichen?',             en: 'When are you best reachable?' }
 };
 
 const productLabels = {
@@ -275,7 +288,7 @@ if (form) {
       if (window.AIGuard && typeof AIGuard.ask === "function") {
         const ai = await AIGuard.ask(question, selectedLang);
 
-        // jika guard minta stop (10 tektokan/low-confidence) → dorong ke form, jangan fallback ke /chat
+        // jika guard minta stop → dorong ke form, jangan fallback ke /chat
         if (ai && ai.stop) {
           if (typingBubble) typingBubble.style.display = "none";
           nudgeToFormFromInterrupt(selectedLang);
@@ -301,7 +314,7 @@ if (form) {
       appendMessage(finalReply, "bot");
       saveToHistory("bot", finalReply);
 
-      // Jika user mengetik saat funnel aktif → anggap "interrupt" dan dorong ke form (tanpa timeline)
+      // Jika user mengetik saat funnel aktif → anggap interrupt dan dorong ke form
       const inFunnel = !!(window.Funnel && window.Funnel.state && window.Funnel.state.product);
       const formAlreadyShown = !!document.getElementById("lead-contact-form-chat");
       if (inFunnel && !formAlreadyShown) {
@@ -353,7 +366,6 @@ function appendMessage(msg, sender, scroll = true) {
       <button onclick="feedbackClick('down')" aria-label="thumbs down">👎</button>
     `;
     msgDiv.appendChild(feedback);
-    // Tidak menambahkan CTA "Jetzt buchen" otomatis di sini (sudah dihapus sesuai revisi)
   }
 
   chatLog.appendChild(msgDiv);
@@ -461,10 +473,34 @@ function showProductOptions() {
 }
 
 // ========================
-// 🧩 Product Click -> start funnel
+// 🧩 Product Click -> router
 // ========================
 function handleProductSelection(key) {
-  startFunnel(key);
+  const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
+
+  // set state dasar
+  Funnel.reset();
+  Funnel.state.product = key;
+  Funnel.state.productLabel = (productLabels[key] && productLabels[key][lang]) || key;
+
+  appendMessage(Funnel.state.productLabel, 'user');
+
+  if (key === 'pv') {
+    // hanya PV yang pakai flow Perspective
+    askNext();
+    return;
+  }
+
+  // produk lain → langsung form kontak
+  appendMessage(
+    lang === 'de'
+      ? 'Für dieses Thema melden wir uns am besten persönlich. Bitte hinterlasse kurz deine Kontaktdaten.'
+      : 'For this topic, we’ll get back to you personally. Please leave your contact details.',
+    'bot'
+  );
+  if (typeof window.injectLeadContactFormChat === 'function') {
+    window.injectLeadContactFormChat(Funnel.state.productLabel, Funnel.state.data);
+  }
 }
 
 // ========================
@@ -545,61 +581,8 @@ function injectLeadMiniForm() {
 }
 
 // ========================
-// 🚦 Conversational Funnel (state-machine by missing field)
+// 🔳 Quick buttons + Cards + Inputs
 // ========================
-const Funnel = {
-  state: { product: null, productLabel: null, step: 0, data: {}, progressMax: 12 },
-  reset() { this.state = { product: null, productLabel: null, step: 0, data: {}, progressMax: 12 }; },
-  progressByFields() {
-    const d = this.state.data || {};
-    const p = this.state.product;
-
-    const common = ['owner', ...(p!=='tenant' ? ['occupant'] : []), 'city', 'plz'];
-    let productFields = [];
-    if (p==='pv') productFields = ['prop_type','roof_form','area_sqm','orientation','neigung_deg','verschattung','consumption_kwh','battery_jn','battery_kwh','timeline'];
-    if (p==='roof') productFields = ['prop_type','material','issues','area_sqm','addons','timeline'];
-    if (p==='heatpump') productFields = ['prop_type','heatingType','living_area','pv_combo','timeline'];
-    if (p==='tenant') productFields = ['prop_type','units','owner2','interest','timeline'];
-
-    const needed = [...common, ...productFields];
-    const answered = needed.filter(k => d[k] !== undefined && d[k] !== null).length;
-    const percent = Math.min(100, Math.round((answered/needed.length)*100));
-    this.progress(percent);
-  },
-  progress(percent) {
-    let bar = document.getElementById('funnel-progress-bar');
-    if (!bar) {
-      const wrap = document.createElement('div');
-      wrap.className = 'funnel-progress';
-      const inner = document.createElement('div');
-      inner.className = 'funnel-progress__bar';
-      inner.id = 'funnel-progress-bar';
-      wrap.appendChild(inner);
-      if (chatLog) chatLog.appendChild(wrap);
-    }
-    requestAnimationFrame(() => {
-      const el = document.getElementById('funnel-progress-bar');
-      if (el) el.style.width = Math.min(100, Math.max(0, percent)) + '%';
-    });
-  }
-};
-window.Funnel = Funnel;
-
-function startFunnel(productKey) {
-  track('funnel.start', { product: productKey });
-  Funnel.reset();
-  Funnel.state.product = productKey;
-
-  // reset counter Q/A di guard supaya sesi fresh
-  if (window.AIGuard && typeof AIGuard.reset === "function") AIGuard.reset();
-
-  const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
-  const label = productLabels[productKey][lang] || productKey;
-  Funnel.state.productLabel = label;
-  appendMessage(label, 'user');
-  askNext();
-}
-
 function askQuick(text, options, fieldKey) {
   appendMessage(text, 'bot');
 
@@ -620,7 +603,7 @@ function askQuick(text, options, fieldKey) {
           window.onTimelineSelected(opt.value);
         }
         group.remove();
-        return; // stop here (summary + form akan muncul via onTimelineSelected)
+        return;
       }
 
       askNext();
@@ -635,16 +618,37 @@ function askQuick(text, options, fieldKey) {
   }
 }
 
-// Optional helper: tanya timeline langsung (agar kompatibel dengan AIGuard)
-function askContact() {
-  const lang = (langSwitcher && langSwitcher.value) || "de";
-  const opts = (lang==="de"
-    ? ['0–3 Monate','3–6 Monate','6–12 Monate']
-    : ['0–3 months','3–6 months','6–12 months'])
-    .map((t,i)=>({label:t, value:(i===0?'0-3':i===1?'3-6':'6-12')}));
-  askQuick(Q.timeline_q[lang], opts, 'timeline');
+// Kartu ala Perspective
+function askCards(text, options, fieldKey) {
+  appendMessage(text, 'bot');
+
+  const grid = document.createElement('div');
+  grid.className = 'pv-card-grid';
+
+  options.forEach(opt => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pv-card';
+    b.innerHTML = `
+      ${opt.emoji ? `<div class="pv-card__emoji">${opt.emoji}</div>` : ''}
+      <div class="pv-card__label">${opt.label}</div>
+    `;
+    b.onclick = () => {
+      appendMessage(opt.label, 'user');
+      Funnel.state.data[fieldKey] = opt.value;
+      askNext();
+      grid.remove();
+    };
+    grid.appendChild(b);
+  });
+
+  if (chatLog) {
+    chatLog.appendChild(grid);
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
 }
 
+// Input text satu kolom
 function askInput(text, fieldKey, validator) {
   appendMessage(text, 'bot');
 
@@ -680,6 +684,15 @@ function askInput(text, fieldKey, validator) {
   }
 }
 
+function askContact() {
+  const lang = (langSwitcher && langSwitcher.value) || "de";
+  const opts = (lang==="de"
+    ? ['0–3 Monate','3–6 Monate','6–12 Monate']
+    : ['0–3 months','3–6 months','6–12 months'])
+    .map((t,i)=>({label:t, value:(i===0?'0-3':i===1?'3-6':'6-12')}));
+  askQuick(Q.timeline_q[lang], opts, 'timeline');
+}
+
 function exitWith(reason) {
   const lang = (langSwitcher && langSwitcher.value) || "de";
   track('lead.exit', { product: Funnel.state.product, reason });
@@ -699,179 +712,178 @@ function exitWith(reason) {
   }
 }
 
-// Core "next unanswered field" flow
+// ========================
+// 🚦 Conversational Funnel (Perspective-only)
+// ========================
+const Funnel = {
+  state: { product: null, productLabel: null, data: {} },
+  reset() { this.state = { product: null, productLabel: null, data: {} }; },
+  progressByFields() {
+    const d = this.state.data || {};
+    const needed = [
+      'install_location','building_type','self_occupied','ownership',
+      'roof_type','storage_interest','install_timeline',
+      'property_street_number','contact_time_window'
+    ];
+    const answered = needed.filter(k => d[k] !== undefined && d[k] !== null && d[k] !== '').length;
+    const percent = Math.min(100, Math.round((answered/needed.length)*100));
+    this.progress(percent);
+  },
+  progress(percent) {
+    let bar = document.getElementById('funnel-progress-bar');
+    if (!bar) {
+      const wrap = document.createElement('div');
+      wrap.className = 'funnel-progress';
+      const inner = document.createElement('div');
+      inner.className = 'funnel-progress__bar';
+      inner.id = 'funnel-progress-bar';
+      wrap.appendChild(inner);
+      if (chatLog) chatLog.appendChild(wrap);
+    }
+    requestAnimationFrame(() => {
+      const el = document.getElementById('funnel-progress-bar');
+      if (el) el.style.width = Math.min(100, Math.max(0, percent)) + '%';
+    });
+  }
+};
+window.Funnel = Funnel;
+
+// Mulai flow (tetap ada untuk kompatibilitas)
+function startFunnel(productKey) {
+  track('funnel.start', { product: productKey });
+  Funnel.reset();
+  Funnel.state.product = productKey;
+
+  if (window.AIGuard && typeof AIGuard.reset === "function") AIGuard.reset();
+
+  const lang = (langSwitcher && langSwitcher.value) || (CONFIG.LANG_DEFAULT || "de");
+  const label = productLabels[productKey][lang] || productKey;
+  Funnel.state.productLabel = label;
+  appendMessage(label, 'user');
+  askNext();
+}
+
+// Inti: flow Perspective PV
 function askNext() {
   const lang = (langSwitcher && langSwitcher.value) || "de";
   const p = Funnel.state.product;
   const d = Funnel.state.data;
 
+  if (p !== 'pv') return; // hanya PV
+
   Funnel.progressByFields();
 
-  // Gates
-  if (d.owner === undefined) {
-    return askQuick(Q.owner_q[lang], [{label: (lang==="de"?"Ja":"Yes"), value:true}, {label:(lang==="de"?"Nein":"No"), value:false}], 'owner');
-  }
-  if (d.owner === false) return exitWith('kein_eigentümer');
-
-  if (p !== 'tenant' && d.occupant === undefined) {
-    return askQuick(Q.occupy_q[lang], [{label: (lang==="de"?"Ja":"Yes"), value:true}, {label:(lang==="de"?"Nein":"No"), value:false}], 'occupant');
-  }
-  if (p !== 'tenant' && d.occupant === false) return exitWith('nicht_bewohnt');
-
-  // Ort → PLZ
-  if (d.city === undefined) {
-    return askInput(Q.city_q[lang], 'city', v => v.trim().length > 0);
-  }
-  if (d.plz === undefined) {
-    return askInput(Q.plz_q[lang], 'plz', v => v.trim().length > 0);
-  }
-
-  // Product-specific
-  if (p === 'pv') {
-    if (d.prop_type === undefined) {
-      const opts = (lang==="de"
-        ? ['Einfamilienhaus','Mehrfamilienhaus','Gewerbe','Sonstiges']
-        : ['Single-family','Multi-family','Commercial','Other']).map(t => ({label:t, value: t.toLowerCase().replace(/\s/g,'_')}));
-      return askQuick(Q.prop_type_q[lang], opts, 'prop_type');
-    }
-    if (d.roof_form === undefined) {
-      const opts = (lang==="de"
-        ? ['Satteldach','Walmdach','Flachdach','Pultdach','Sonstiges']
-        : ['Gable','Hip','Flat','Mono-pitch','Other']).map(t => ({label:t, value: t.toLowerCase().replace(/\s/g,'_')}));
-      return askQuick(Q.roof_form_q[lang], opts, 'roof_form');
-    }
-    if (d.area_sqm === undefined) {
-      return askInput(Q.area_q[lang], 'area_sqm', v => v.trim().length>0); // flexible
-    }
-    if (d.orientation === undefined) {
-      const opts = (lang==="de"
-        ? ['Süd','Süd-Ost','Süd-West','Ost','West','Nord','Gemischt']
-        : ['South','South-East','South-West','East','West','North','Mixed'])
-        .map(t => ({label:t, value: t.toLowerCase().replace(/\s/g,'_')}));
-      return askQuick(Q.orient_q[lang], opts, 'orientation');
-    }
-    if (d.neigung_deg === undefined) {
-      return askInput(Q.pitch_q[lang], 'neigung_deg', v => v.trim().length>0); // flexible
-    }
-    if (d.verschattung === undefined) {
-      const opts = (lang==="de"
-        ? ['Keine','Leicht','Mittel','Stark']
-        : ['None','Light','Medium','Heavy']).map(t => ({label:t, value:t.toLowerCase()}));
-      return askQuick(Q.shade_q[lang], opts, 'verschattung');
-    }
-    if (d.consumption_kwh === undefined) {
-      return askInput(Q.cons_q[lang], 'consumption_kwh', v => v.trim().length>0); // flexible
-    }
-    if (d.battery_jn === undefined) {
-      return askQuick(Q.battery_q[lang], [{label:(lang==="de"?'Ja':'Yes'), value:true},{label:(lang==="de"?'Nein':'No'), value:false}], 'battery_jn');
-    }
-    if (d.battery_jn === true && d.battery_kwh === undefined) {
-      return askInput(Q.battery_k_q[lang], 'battery_kwh', v => v.trim().length>0);
-    }
-    if (d.timeline === undefined) {
-      const opts = (lang==="de"
-        ? ['0–3 Monate','3–6 Monate','6–12 Monate']
-        : ['0–3 months','3–6 months','6–12 months']).map((t,i)=>({label:t, value:(i===0?'0-3':i===1?'3-6':'6-12')}));
-      return askQuick(Q.timeline_q[lang], opts, 'timeline'); // will trigger summary+form
-    }
-    return; // done
+  // 1) Install location
+  if (d.install_location === undefined) {
+    const opts = (lang==="de"
+      ? [
+        {label:'Einfamilienhaus', value:'einfamilienhaus', emoji:'🏠'},
+        {label:'Mehrfamilienhaus', value:'mehrfamilienhaus', emoji:'🏢'},
+        {label:'Gewerbeimmobilie', value:'gewerbeimmobilie', emoji:'🏭'},
+        {label:'Sonstiges', value:'sonstiges', emoji:'✨'}
+      ]
+      : [
+        {label:'Single-family', value:'einfamilienhaus', emoji:'🏠'},
+        {label:'Multi-family', value:'mehrfamilienhaus', emoji:'🏢'},
+        {label:'Commercial', value:'gewerbeimmobilie', emoji:'🏭'},
+        {label:'Other', value:'sonstiges', emoji:'✨'}
+      ]);
+    return askCards(Q.install_location_q[lang], opts, 'install_location');
   }
 
-  if (p === 'roof') {
-    if (d.prop_type === undefined) {
-      const opts = (lang==="de"
-        ? ['Einfamilienhaus','Mehrfamilienhaus','Gewerbe']
-        : ['Single-family','Multi-family','Commercial']).map(t=>({label:t,value:t.toLowerCase().replace(/\s/g,'_')}));
-      return askQuick(Q.prop_type_q[lang], opts, 'prop_type');
-    }
-    if (d.material === undefined) {
-      const opts = (lang==="de" ? ['Ziegel','Bitumen','Blech'] : ['Tile','Bitumen','Metal'])
-        .map(t=>({label:t,value:t.toLowerCase()}));
-      return askQuick('Dachmaterial?', opts, 'material');
-    }
-    if (d.issues === undefined) {
-      const opts = (lang==="de"
-        ? ['Undichtigkeiten','Dämmung','Keine']
-        : ['Leaks','Insulation','None']).map(t=>({label:t,value:t.toLowerCase()}));
-      return askQuick(Q.issues_q[lang], opts, 'issues');
-    }
-    if (d.area_sqm === undefined) {
-      return askInput('Dachfläche (m²)?', 'area_sqm', v => v.trim().length>0);
-    }
-    if (d.addons === undefined) {
-      const opts = (lang==="de"
-        ? ['Dämmung','Dachfenster','Keine']
-        : ['Insulation','Roof windows','None']).map(t=>({label:t,value:t.toLowerCase()}));
-      return askQuick('Zusatzoptionen?', opts, 'addons');
-    }
-    if (d.timeline === undefined) {
-      const opts = (lang==="de"
-        ? ['0–3 Monate','3–6 Monate','6–12 Monate']
-        : ['0–3 months','3–6 months','6–12 months']).map((t,i)=>({label:t, value:(i===0?'0-3':i===1?'3-6':'6-12')}));
-      return askQuick(Q.timeline_q[lang], opts, 'timeline');
-    }
-    return;
+  // 2) Subtype (EFH only)
+  if (d.install_location === 'einfamilienhaus' && d.building_type === undefined) {
+    const opts = (lang==="de"
+      ? ['Freistehendes Haus','Doppelhaushälfte','Reihenmittelhaus','Reihenendhaus']
+      : ['Detached','Semi-detached','Mid-terrace','End-terrace'])
+      .map(t => ({ label:t, value:t.toLowerCase().replace(/\s/g,'_'), emoji:'🏡' }));
+    return askCards(Q.building_type_q[lang], opts, 'building_type');
   }
 
-  if (p === 'heatpump') {
-    if (d.prop_type === undefined) {
-      const opts = (lang==="de"
-        ? ['Einfamilienhaus','Mehrfamilienhaus','Gewerbe']
-        : ['Single-family','Multi-family','Commercial']).map(t=>({label:t,value:t.toLowerCase().replace(/\s/g,'_')}));
-      return askQuick(Q.prop_type_q[lang], opts, 'prop_type');
-    }
-    if (d.heatingType === undefined) {
-      const opts = (lang==="de" ? ['Gas','Öl','Fernwärme'] : ['Gas','Oil','District heating'])
-        .map(t=>({label:t,value:t.toLowerCase()}));
-      return askQuick(Q.heatingType_q[lang], opts, 'heatingType');
-    }
-    if (d.living_area === undefined) {
-      return askInput(Q.living_area_q[lang], 'living_area', v => v.trim().length>0);
-    }
-    if (d.pv_combo === undefined) {
-      return askQuick('Kombi mit PV?', [{label:(lang==="de"?'Ja':'Yes'), value:true},{label:(lang==="de"?'Nein':'No'), value:false}], 'pv_combo');
-    }
-    if (d.timeline === undefined) {
-      const opts = (lang==="de"
-        ? ['0–3 Monate','3–6 Monate','6–12 Monate']
-        : ['0–3 months','3–6 months','6–12 months']).map((t,i)=>({label:t, value:(i===0?'0-3':i===1?'3-6':'6-12')}));
-      return askQuick(Q.timeline_q[lang], opts, 'timeline');
-    }
-    return;
+  // 3) Self occupied
+  if (d.self_occupied === undefined) {
+    const opts = (lang==="de" ? ['Ja','Nein'] : ['Yes','No'])
+      .map((t,i)=>({label:t, value:i===0, emoji:i===0?'✅':'🚫'}));
+    return askCards(Q.self_occupied_q[lang], opts, 'self_occupied');
   }
 
-  if (p === 'tenant') {
-    if (d.prop_type === undefined) {
-      const opts = (lang==="de" ? ['Mehrfamilienhaus','Gewerbe'] : ['Multi-family','Commercial'])
-        .map(t=>({label:t,value:t.toLowerCase().replace(/\s/g,'_')}));
-      return askQuick(Q.prop_type_q[lang], opts, 'prop_type');
+  // 4) Ownership
+  if (d.ownership === undefined) {
+    const opts = (lang==="de" ? ['Ja','Nein'] : ['Yes','No'])
+      .map((t,i)=>({label:t, value:i===0, emoji:i===0?'🔑':'🚫'}));
+    return askCards(Q.ownership_q[lang], opts, 'ownership');
+  }
+
+  // 5) Roof type
+  if (d.roof_type === undefined) {
+    const opts = (lang==="de" ? ['Flachdach','Spitzdach','Andere'] : ['Flat','Pitched','Other'])
+      .map(t => ({label:t, value:t.toLowerCase(), emoji:'🏚️'}));
+    return askCards(Q.roof_type_q[lang], opts, 'roof_type');
+  }
+
+  // 6) Battery interest
+  if (d.storage_interest === undefined) {
+    const opts = (lang==="de" ? ['Ja','Nein','Unsicher'] : ['Yes','No','Unsure'])
+      .map(t => ({label:t, value:t.toLowerCase(), emoji:'🔋'}));
+    return askCards(Q.storage_interest_q[lang], opts, 'storage_interest');
+  }
+
+  // 7) Install timeline
+  if (d.install_timeline === undefined) {
+    const opts = (lang==="de"
+      ? [
+        {label:'So schnell wie möglich', value:'asap'},
+        {label:'In 1–3 Monaten', value:'1-3'},
+        {label:'In 4–6 Monaten', value:'4-6'},
+        {label:'In mehr als 6 Monaten', value:'>6'}
+      ]
+      : [
+        {label:'As soon as possible', value:'asap'},
+        {label:'In 1–3 months', value:'1-3'},
+        {label:'In 4–6 months', value:'4-6'},
+        {label:'In more than 6 months', value:'>6'}
+      ]);
+    return askCards(Q.install_timeline_q[lang], opts, 'install_timeline');
+  }
+
+  // 8) Street + Nr.
+  if (d.property_street_number === undefined) {
+    return askInput(Q.property_street_q[lang], 'property_street_number', v => (v||"").trim().length > 3);
+  }
+
+  // 9) Best contact time
+  if (d.contact_time_window === undefined) {
+    const opts = (lang==="de"
+      ? ['08:00–12:00','12:00–16:00','16:00–20:00','Egal / zu jeder Zeit']
+      : ['08:00–12:00','12:00–16:00','16:00–20:00','Any time'])
+      .map(t => ({label:t, value:t}));
+    return askCards(Q.contact_time_q[lang], opts, 'contact_time_window');
+  }
+
+  // 10) Summary + contact form (once)
+  if (!d.__done_perspective_summary) {
+    d.__done_perspective_summary = true;
+
+    if (typeof window.showSummaryFromFunnel === "function") {
+      window.showSummaryFromFunnel(d);
     }
-    if (d.units === undefined) {
-      return askInput(lang==="de"?'Anzahl Wohneinheiten?':'Number of units?', 'units', v => v.trim().length>0);
+
+    appendMessage(
+      lang==="de"
+        ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:"
+        : "Almost done! We just need your contact details:",
+      "bot"
+    );
+
+    if (typeof window.injectLeadContactFormChat === "function") {
+      window.injectLeadContactFormChat(Funnel.state.productLabel || "Photovoltaik", d);
     }
-    if (d.owner2 === undefined) {
-      return askQuick(lang==="de"?'Bist du Eigentümer/Verwalter?':'Are you the owner/manager?',
-        [{label:(lang==="de"?'Ja':'Yes'), value:true},{label:(lang==="de"?'Nein':'No'), value:false}], 'owner2');
-    }
-    if (d.owner2 === false) return exitWith('kein_eigentümer');
-    if (d.interest === undefined) {
-      const opts = (lang==="de" ? ['PV','Wärmepumpe','Dach'] : ['PV','Heat pump','Roof'])
-        .map(t=>({label:t,value:t.toLowerCase().replace(/\s/g,'_')}));
-      return askQuick('Interesse?', opts, 'interest');
-    }
-    if (d.timeline === undefined) {
-      const opts = (lang==="de"
-        ? ['0–3 Monate','3–6 Monate','6–12 Monate']
-        : ['0–3 months','3–6 months','6–12 months']).map((t,i)=>({label:t, value:(i===0?'0-3':i===1?'3-6':'6-12')}));
-      return askQuick(Q.timeline_q[lang], opts, 'timeline');
-    }
-    return;
   }
 }
 window.askNext = askNext;
 
 // ========================
-// ✅ NUDGE: kalau user motong funnel / guard stop → tampilkan summary & form
+// ✅ NUDGE: guard stop / user interrupt
 // ========================
 function nudgeToFormFromInterrupt(lang) {
   try {
