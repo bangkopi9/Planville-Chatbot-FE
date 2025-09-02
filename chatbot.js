@@ -171,6 +171,10 @@ window.addEventListener("load", () => {
   const selectedLang = localStorage.getItem("selectedLang") || (CONFIG.LANG_DEFAULT || "de");
   if (langSwitcher) langSwitcher.value = selectedLang;
 
+  // kill old left balloon if exists (remove white area)
+  const oldBalloon = document.querySelector(".pv-balloon");
+  if (oldBalloon) oldBalloon.remove();
+
   if (pvBalloon) pvBalloon.textContent = I18N.robotBalloon[selectedLang];
 
   updateFAQ(selectedLang);
@@ -186,7 +190,9 @@ window.addEventListener("load", () => {
 
   showChatArea();
   chatStarted = true;
-  startGreetingFlow();
+
+  // ❗ No auto greeting here — index.html already pushes the first greeting.
+  // startGreetingFlow();  ← removed to avoid duplicate greeting bubbles
 
   if (pvHero) {
     pvHero.style.cursor = "pointer";
@@ -194,7 +200,7 @@ window.addEventListener("load", () => {
       if (!chatStarted) {
         chatStarted = true;
         showChatArea();
-        startGreetingFlow();
+        // startGreetingFlow(); // still avoid duplicate
         const __sb = document.querySelector('.faq-sidebar');
         if (__sb) __sb.style.display = 'none';
         const __fl = document.getElementById('faq-list');
@@ -259,7 +265,7 @@ if (form) {
     if (!chatStarted) {
       chatStarted = true;
       showChatArea();
-      startGreetingFlow(false);
+      // startGreetingFlow(false); // avoid duplicate
     }
 
     const question = (input.value || "").trim();
@@ -872,11 +878,6 @@ function askNext() {
 
     if (typeof window.injectLeadContactFormChat === "function") {
       window.injectLeadContactFormChat(Funnel.state.productLabel || "Photovoltaik", d);
-
-      // OPTIONAL: kalau mau summary auto-update saat user ketik PLZ,
-      // tambahkan listener di sini (butuh akses element #c_plz dari form).
-      // const plzEl = document.querySelector('#lead-contact-form-chat #c_plz');
-      // if (plzEl) plzEl.addEventListener('input', (e)=>{ d.plz = (e.target.value||'').trim(); /* bisa pilih: re-render summary */ });
     }
   }
 }
