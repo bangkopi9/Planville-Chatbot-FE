@@ -5,6 +5,9 @@
   const MAX_QA_TURNS = 10;
   const RESPONSE_MIN_CHARS = 12; // anti-kosong
 
+  // safe API helper
+  const API = (p) => (typeof global._api === "function" ? global._api(p) : p);
+
   function getLang() {
     try { return document.getElementById("langSwitcher").value || "de"; }
     catch (_) { return "de"; }
@@ -12,20 +15,14 @@
 
   const TXT = {
     de: {
-      fallback:
-        "Dazu habe ich keine gesicherte Information.",
-      toForm:
-        "Damit wir dir schnell helfen können, trag bitte unten kurz deine Kontaktdaten ein – wir melden uns zeitnah.",
-      turnCap:
-        "Wir haben schon vieles geklärt. Trag bitte unten kurz deine Kontaktdaten ein, dann melden wir uns mit einer konkreten Einschätzung."
+      fallback: "Dazu habe ich keine gesicherte Information.",
+      toForm: "Damit wir dir schnell helfen können, trag bitte unten kurz deine Kontaktdaten ein – wir melden uns zeitnah.",
+      turnCap: "Wir haben schon vieles geklärt. Trag bitte unten kurz deine Kontaktdaten ein, dann melden wir uns mit einer konkreten Einschätzung."
     },
     en: {
-      fallback:
-        "I don't have verified information on that.",
-      toForm:
-        "To help you quickly, please leave your contact details below — our team will reach out shortly.",
-      turnCap:
-        "We’ve covered a lot already. Please leave your contact details below and we’ll follow up with a concrete assessment."
+      fallback: "I don't have verified information on that.",
+      toForm: "To help you quickly, please leave your contact details below — our team will reach out shortly.",
+      turnCap: "We’ve covered a lot already. Please leave your contact details below and we’ll follow up with a concrete assessment."
     }
   };
 
@@ -77,6 +74,15 @@
 
   function openFormNow(lang) {
     const L = TXT[lang] || TXT.de;
+
+    // tampilkan summary jika ada data funnel
+    try {
+      const qualification = global.Funnel?.state?.data || null;
+      if (qualification && typeof global.showSummaryFromFunnel === "function") {
+        global.showSummaryFromFunnel(qualification);
+      }
+    } catch (_) {}
+
     // pesan pengantar → arahkan langsung ke form
     appendMessage?.(`${L.fallback} ${L.toForm}`, "bot");
 
@@ -102,7 +108,7 @@
   // ===== panggil RAG
   async function askRAG(question, lang) {
     try {
-      const res = await fetch("/ai/answer", {
+      const res = await fetch(API("/ai/answer"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -123,7 +129,7 @@
   // ===== fallback ke /chat
   async function askChat(question, lang) {
     try {
-      const res = await fetch("/chat", {
+      const res = await fetch(API("/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -175,3 +181,4 @@
 
   global.AIGuard = AIGuard;
 })(window);
+
