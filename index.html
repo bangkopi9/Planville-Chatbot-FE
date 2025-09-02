@@ -17,6 +17,17 @@
       BASE_API_URL: "https://web-production-352d9.up.railway.app"
     };
 
+    // Helper _api fallback (kalau belum didefinisikan di file lain)
+    if (!window._api) {
+      window._api = function(path){
+        try{
+          const base = (window.CONFIG?.BASE_API_URL || "").replace(/\/+$/,"");
+          const p = String(path || "");
+          return base + (p.startsWith("/") ? p : "/" + p);
+        }catch(e){ return path; }
+      };
+    }
+
     // GANTI jika kamu redeploy GAS (pakai URL /macros/s/.../exec)
     const GS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyKLXl0OVZuGNsSxMDlz-tt4zGLx9kCyUSqlKZgfPCPx5TizWGS-8FfURRLJYFW8F_9/exec";
     const GS_WEBHOOK_SECRET = "PV_LEADS_WEBHOOK_SECRET_8e2c7f4fb2c3412cbbde2f3e9a0c7b51";
@@ -124,8 +135,8 @@
         window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
       } catch(_) {}
       try {
-        // ← relative path: akan di-rewrite oleh Vercel
-        fetch("/track", {
+        // gunakan API helper
+        fetch(_api("/track"), {
           method: "POST",
           headers: { "Content-Type":"application/json" },
           body: JSON.stringify({ event: eventName, props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props) })
@@ -198,40 +209,49 @@
       alert("Einstellungsseite ist noch in Entwicklung.");
     }
 
-    /* ---------- Summary helpers ---------- */
+    /* ---------- Summary helpers (updated for Perspective) ---------- */
     function buildLeadSummary(lang, productLabel, q = {}) {
       const L = {
         de: {
-          product:"Produkt", city:"Ort", plz:"PLZ", type:"Gebäudetyp", roofForm:"Dachform",
-          area:"Dachfläche (m²)", orient:"Ausrichtung", pitch:"Neigungswinkel (°)",
+          product:"Produkt", city:"Ort", plz:"PLZ", type:"Gebäudetyp/Installation",
+          roofForm:"Dachform", area:"Dachfläche (m²)", orient:"Ausrichtung", pitch:"Neigungswinkel (°)",
           shade:"Verschattung", cons:"Jahresverbrauch (kWh)", battery:"Batteriespeicher",
-          timeline:"Zeitrahmen", yes:"Ja", no:"Nein"
+          timeline:"Zeitrahmen", contact:"Kontaktzeit", address:"Adresse", yes:"Ja", no:"Nein"
         },
         en: {
-          product:"Product", city:"City", plz:"ZIP", type:"Property type", roofForm:"Roof form",
-          area:"Roof area (m²)", orient:"Orientation", pitch:"Pitch (°)",
+          product:"Product", city:"City", plz:"ZIP", type:"Property/Installation",
+          roofForm:"Roof form", area:"Roof area (m²)", orient:"Orientation", pitch:"Pitch (°)",
           shade:"Shading", cons:"Annual usage (kWh)", battery:"Battery storage",
-          timeline:"Timeline", yes:"Yes", no:"No"
+          timeline:"Timeline", contact:"Best time", address:"Address", yes:"Yes", no:"No"
         }
       }[lang||'de'];
 
       const yesNo = (v) => v===true ? L.yes : (v===false ? L.no : (v ?? "-"));
       const k = (x)=> (q[x] ?? "-");
 
+      // Map field Perspective → label summary
+      const batteryYesNo = (q.storage_interest !== undefined)
+        ? (String(q.storage_interest).toLowerCase() === 'ja' ? L.yes :
+           String(q.storage_interest).toLowerCase() === 'yes' ? L.yes :
+           (String(q.storage_interest).toLowerCase() === 'nein' || String(q.storage_interest).toLowerCase() === 'no') ? L.no : (q.storage_interest ?? "-"))
+        : yesNo(q.battery_jn);
+
       return [
         `${L.product}: ${productLabel || "-"}`,
         `${L.city}: ${k('city')}`,
         `${L.plz}: ${k('plz')}`,
-        `${L.type}: ${k('prop_type') || k('immobilientyp')}`,
-        `${L.roofForm}: ${k('roof_form') || k('dachform')}`,
+        `${L.type}: ${k('prop_type') || k('immobilientyp') || k('install_location')}`,
+        `${L.roofForm}: ${k('roof_type') || k('roof_form') || k('dachform')}`,
         `${L.area}: ${k('area_sqm') || k('dachflache_m2')}`,
         `${L.orient}: ${k('orientation') || k('ausrichtung')}`,
         `${L.pitch}: ${k('neigung_deg') || k('neigungswinkel')}`,
         `${L.shade}: ${k('shading') || k('verschattung')}`,
         `${L.cons}: ${k('consumption_kwh') || k('verbrauch_kwh')}`,
-        `${L.battery}: ${yesNo(q.battery_jn)}` + (q.battery_kwh ? ` (${q.battery_kwh} kWh)` : ""),
-        `${L.timeline}: ${k('timeline') || k('zeitrahmen')}`
-      ].join(" • ");
+        `${L.battery}: ${batteryYesNo}` + (q.battery_kwh ? ` (${q.battery_kwh} kWh)` : ""),
+        `${L.timeline}: ${k('install_timeline') || k('timeline') || k('zeitrahmen')}`,
+        `${L.contact}: ${k('contact_time_window')}`,
+        `${L.address}: ${k('property_street_number')}`
+      ].filter(Boolean).join(" • ");
     }
 
     function showSummaryFromFunnel(qualification = {}) {
@@ -304,13 +324,17 @@
       // Send to Google Sheets (parallel, fire-and-forget)
       logLeadToGoogleSheet(payload);
 
-      // Send to backend (relative → kena rewrites Vercel)
-      const res = await fetch("/lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+      // Send to backend (pakai helper API)
+      const res = await fetch(_api("/lead"), {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(payload)
+      });
       if (!res.ok) throw new Error("Lead push failed");
       return res.json();
     }
 
-    /* ---------- Mini contact form in chat (appears after timeline) ---------- */
+    /* ---------- Mini contact form in chat (updated: +PLZ & prefill address) ---------- */
     let isSubmittingLead = false;
 
     function injectLeadContactFormChat(productLabel, qualification) {
@@ -324,7 +348,8 @@
         </div>
         <form id="lead-contact-form-chat">
           <input type="text" id="c_name"  placeholder="${lang==="de"?"Name":"Name"}" required style="width:100%;margin:4px 0;">
-          <input type="text" id="c_addr"  placeholder="${lang==="de"?"Adresse":"Address"}" required style="width:100%;margin:4px 0;">
+          <input type="text" id="c_addr"  placeholder="${lang==="de"?"Adresse (Straße + Nr.)":"Address (Street + No.)"}" required style="width:100%;margin:4px 0;">
+          <input type="text" id="c_plz"   placeholder="${lang==="de"?"PLZ":"ZIP"}" required style="width:100%;margin:4px 0;">
           <input type="email" id="c_email" placeholder="E-Mail" required style="width:100%;margin:4px 0;">
           <input type="tel"   id="c_phone" placeholder="${lang==="de"?"Telefonnummer":"Phone number"}" required style="width:100%;margin:4px 0;">
           <label style="display:flex;gap:.5rem;align-items:center;margin:6px 0;">
@@ -341,6 +366,14 @@
       `;
       log.appendChild(wrap);
 
+      // Prefill address & PLZ from qualification (if present)
+      try {
+        const addr = qualification?.property_street_number ? String(qualification.property_street_number) : "";
+        if (addr) wrap.querySelector("#c_addr").value = addr;
+        const plz = qualification?.plz ? String(qualification.plz) : "";
+        if (plz) wrap.querySelector("#c_plz").value = plz;
+      } catch(_) {}
+
       const form = wrap.querySelector("#lead-contact-form-chat");
       const btn  = form.querySelector('button[type="submit"]');
 
@@ -349,12 +382,16 @@
         if (isSubmittingLead) return; // anti double submit
         const name  = form.querySelector("#c_name").value.trim();
         const addr  = form.querySelector("#c_addr").value.trim();
+        const plz   = form.querySelector("#c_plz").value.trim();
         const email = form.querySelector("#c_email").value.trim();
         const phone = form.querySelector("#c_phone").value.trim();
         const ok    = form.querySelector("#c_consent").checked;
 
         if (!ok) { alert(lang==="de"?"Bitte Zustimmung erteilen.":"Please give consent."); return; }
-        if (!validEmail(email)) { alert(lang==="de"?"Bitte eine gültige E-Mail eingeben.":"Please enter a valid email."); return; }
+        if (!validEmail(email)) { alert(lang==="de"?"Bitte eine gültige E-Mail-Adresse eintragen.":"Please enter a valid email."); return; }
+
+        // inject PLZ ke qualification agar ikut payload
+        try { if (qualification && typeof qualification === "object") qualification.plz = plz; } catch(_){}
 
         // UI state
         isSubmittingLead = true;
@@ -381,7 +418,7 @@
       });
     }
 
-    /* ---------- Dipanggil saat user memilih timeline ---------- */
+    /* ---------- Dipanggil saat user memilih timeline (legacy support) ---------- */
     window.onTimelineSelected = function(timelineValue){
       const lang = getLang();
 
@@ -427,8 +464,8 @@
       try {
         // log ke Sheets juga (fire-and-forget)
         logLeadToGoogleSheet(payload);
-        // relative → kena rewrites
-        fetch("/lead", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+        // pakai helper API
+        fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
       } catch(_){}
       trackFE("disqualify", { product: payload.product, reason: payload.qualification.disqualify_reason });
     };
