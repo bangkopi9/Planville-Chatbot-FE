@@ -105,11 +105,6 @@ const Q = {
 
   issues_q: { de:'Gibt es Probleme?', en:'Any current issues?' },
 
-  disq_txt: { 
-    de:'Danke für dein Interesse! Aufgrund deiner Antworten können wir dir leider keine passende Dienstleistung anbieten. Schau aber gerne mal auf unserer Webseite vorbei!',
-    en:'Thanks for your interest! Based on your answers we currently have no matching service. Feel free to check our website!'
-  },
-
   // ===== Perspective Quick-Check (PV) =====
   install_location_q: { de: 'Worauf soll die Solaranlage installiert werden?', en: 'Where should the PV system be installed?' },
   building_type_q:    { de: 'Um welchen Gebäudetyp handelt es sich?',           en: 'What is the building subtype?' },
@@ -860,13 +855,9 @@ function askNext() {
     return askCards(Q.contact_time_q[lang], opts, 'contact_time_window');
   }
 
-  // 10) Summary + contact form (once)
+  // 10) PESAN BIRU → SUMMARY → FORM (sesuai request)
   if (!d.__done_perspective_summary) {
     d.__done_perspective_summary = true;
-
-    if (typeof window.showSummaryFromFunnel === "function") {
-      window.showSummaryFromFunnel(d);
-    }
 
     appendMessage(
       lang==="de"
@@ -875,8 +866,17 @@ function askNext() {
       "bot"
     );
 
+    if (typeof window.showSummaryFromFunnel === "function") {
+      window.showSummaryFromFunnel(d);
+    }
+
     if (typeof window.injectLeadContactFormChat === "function") {
       window.injectLeadContactFormChat(Funnel.state.productLabel || "Photovoltaik", d);
+
+      // OPTIONAL: kalau mau summary auto-update saat user ketik PLZ,
+      // tambahkan listener di sini (butuh akses element #c_plz dari form).
+      // const plzEl = document.querySelector('#lead-contact-form-chat #c_plz');
+      // if (plzEl) plzEl.addEventListener('input', (e)=>{ d.plz = (e.target.value||'').trim(); /* bisa pilih: re-render summary */ });
     }
   }
 }
@@ -892,14 +892,14 @@ function nudgeToFormFromInterrupt(lang) {
     const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
     const qualification = (window.Funnel?.state?.data) || {};
 
-    if (typeof window.showSummaryFromFunnel === "function") {
-      window.showSummaryFromFunnel(qualification);
-    }
-
     const msg = (lang === "de")
       ? "Alles klar! Dann bräuchten wir nur noch deine Kontaktdaten:"
       : "All right! We just need your contact details:";
     appendMessage(msg, "bot");
+
+    if (typeof window.showSummaryFromFunnel === "function") {
+      window.showSummaryFromFunnel(qualification);
+    }
 
     if (typeof window.injectLeadContactFormChat === "function") {
       window.injectLeadContactFormChat(productLabel, qualification);
