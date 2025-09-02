@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.json"/>
   <link rel="icon" href="planville-logo.png" type="image/png"/>
 
-  <!-- ===== Global Config (opsional; tdk dipakai saat rewrites) ===== -->
+  <!-- ===== Global Config ===== -->
   <script>
     // Boleh dibiarkan untuk future use; TIDAK dipakai kalau sudah pakai Vercel rewrites
     window.CONFIG = {
@@ -54,11 +54,6 @@
 </head>
 
 <body>
-  <!-- Intro balloon -->
-  <div class="pv-balloon" role="status">
-    <span>Hi! Ich bin dein Planville Assistent. Wobei darf ich helfen?</span>
-  </div>
-
   <!-- 📌 Sidebar FAQ -->
   <div class="faq-sidebar">
     <h2>Frequently Asked Questions</h2>
@@ -208,7 +203,7 @@
       alert("Einstellungsseite ist noch in Entwicklung.");
     }
 
-    /* ---------- Summary helpers (updated for Perspective) ---------- */
+    /* ---------- Summary helpers (auto-hide kosong) ---------- */
     function buildLeadSummary(lang, productLabel, q = {}) {
       const L = {
         de: {
@@ -225,41 +220,35 @@
         }
       }[lang||'de'];
 
-      const get = (keys) => {
-        const arr = Array.isArray(keys) ? keys : [keys];
-        for (const k of arr) {
-          const v = q?.[k];
-          if (v !== undefined && v !== null && String(v).trim() !== "") return v;
-        }
-        return "-";
+      const has = v => v!==undefined && v!==null && String(v).trim()!=="" && String(v).trim()!=="-";
+      const pick = (...keys) => {
+        for (const k of keys){ const v = q?.[k]; if (has(v)) return v; }
+        return null;
       };
 
-      // battery yes/no (support flow baru: storage_interest)
-      const batteryYesNo = (() => {
-        const raw = get(["storage_interest","battery_jn"]);
-        if (raw === "-" ) return "-";
-        const t = String(raw).toLowerCase();
-        if (["ja","yes","true"].includes(t)) return L.yes;
-        if (["nein","no","false"].includes(t)) return L.no;
-        return raw;
-      })();
+      const batteryRaw = pick("storage_interest","battery_jn");
+      const batteryYesNo = has(batteryRaw)
+        ? ((s=>{ s=(s+"").toLowerCase(); if(["ja","yes","true"].includes(s))return L.yes; if(["nein","no","false"].includes(s))return L.no; return batteryRaw; }) (batteryRaw))
+        : null;
 
-      return [
-        `${L.product}: ${productLabel || "-"}`,
-        `${L.city}: ${get(["city","ort","town","stadt"])}`,
-        `${L.plz}: ${get(["plz","zip","postal_code","postleitzahl"])}`,
-        `${L.type}: ${get(["prop_type","immobilientyp","install_location","installation_location","install_on"])}`,
-        `${L.roofForm}: ${get(["roof_type","roof_form","dachform"])}`,
-        `${L.area}: ${get(["area_sqm","dachflache_m2"])}`,
-        `${L.orient}: ${get(["orientation","ausrichtung"])}`,
-        `${L.pitch}: ${get(["neigung_deg","neigungswinkel"])}`,
-        `${L.shade}: ${get(["shading","verschattung"])}`,
-        `${L.cons}: ${get(["consumption_kwh","verbrauch_kwh"])}`,
-        `${L.battery}: ${batteryYesNo}` + (q?.battery_kwh ? ` (${q.battery_kwh} kWh)` : ""),
-        `${L.timeline}: ${get(["install_timeline","timeline","zeitrahmen"])}`,
-        `${L.contact}: ${get(["contact_time_window","contact_window"])}`,
-        `${L.address}: ${get(["property_street_number","address","adresse"])}`
-      ].join(" • ");
+      const rows = [
+        [L.product, productLabel || "-"],
+        [L.city, pick("city","ort","town","stadt")],
+        [L.plz, pick("plz","zip","postal_code","postleitzahl")],
+        [L.type, pick("prop_type","immobilientyp","install_location","installation_location","install_on")],
+        [L.roofForm, pick("roof_type","roof_form","dachform")],
+        [L.area, pick("area_sqm","dachflache_m2")],
+        [L.orient, pick("orientation","ausrichtung")],
+        [L.pitch, pick("neigung_deg","neigungswinkel")],
+        [L.shade, pick("shading","verschattung")],
+        [L.cons, pick("consumption_kwh","verbrauch_kwh")],
+        [L.battery, batteryYesNo ? (batteryYesNo + (has(q?.battery_kwh)?` (${q.battery_kwh} kWh)`:"")) : null],
+        [L.timeline, pick("install_timeline","timeline","zeitrahmen")],
+        [L.contact, pick("contact_time_window","contact_window")],
+        [L.address, pick("property_street_number","address","adresse")]
+      ].filter(([,v]) => has(v));
+
+      return rows.map(([k,v]) => `${k}: ${v}`).join(" • ");
     }
 
     function showSummaryFromFunnel(qualification = {}) {
@@ -278,7 +267,7 @@
       trackFE("summary_view", { product: mapProduct(productLabel) });
     }
 
-    // live-update satu baris di summary terakhir (PLZ/Address)
+    // live-update PLZ/Address di summary terakhir (buat li jika belum ada)
     function updateSummaryField(lang, key, value){
       try{
         const LABEL = (lang==="en")
@@ -287,14 +276,24 @@
         const bubble = [...document.querySelectorAll(".summary-bubble")].slice(-1)[0];
         if (!bubble) return;
         const ul = bubble.querySelector("ul"); if (!ul) return;
+
         const label = LABEL[key];
-        const li = [...ul.querySelectorAll("li")]
+        let li = [...ul.querySelectorAll("li")]
           .find(node => node.textContent.trim().startsWith(label + ":"));
-        if (li) li.textContent = `${label}: ${value && String(value).trim() ? value : "-"}`;
+
+        const text = `${label}: ${value && String(value).trim() ? value : "-"}`;
+
+        if (li) {
+          li.textContent = text;
+        } else {
+          const newLi = document.createElement("li");
+          newLi.textContent = text;
+          ul.appendChild(newLi);
+        }
       }catch(_){}
     }
 
-    /* ---------- Google Sheets logging (sendBeacon + no-cors fallback) ---------- */
+    /* ---------- Google Sheets logging ---------- */
     function logLeadToGoogleSheet(payload){
       if (!GS_WEBHOOK_URL) return;
       const data = JSON.stringify({ secret: GS_WEBHOOK_SECRET, data: payload });
@@ -341,7 +340,6 @@
       };
 
       trackFE("contact_submit", { product, origin: origin||"unknown" });
-
       logLeadToGoogleSheet(payload);
 
       const res = await fetch(_api("/lead"), {
@@ -353,7 +351,7 @@
       return res.json();
     }
 
-    /* ---------- Mini contact form in chat (updated: +PLZ & live update) ---------- */
+    /* ---------- Mini contact form in chat (PLZ & live update) ---------- */
     let isSubmittingLead = false;
 
     function injectLeadContactFormChat(productLabel, qualification) {
@@ -423,7 +421,6 @@
         if (!ok) { alert(lang==="de"?"Bitte Zustimmung erteilen.":"Please give consent."); return; }
         if (!validEmail(email)) { alert(lang==="de"?"Bitte eine gültige E-Mail-Adresse eintragen.":"Please enter a valid email."); return; }
 
-        // inject PLZ ke qualification agar ikut payload
         try { if (qualification && typeof qualification === "object") qualification.plz = plz; } catch(_){}
 
         isSubmittingLead = true;
@@ -461,16 +458,16 @@
         ? { ...window.Funnel.state.data, timeline: timelineValue }
         : { timeline: timelineValue, product_label: productLabel };
 
-      // 1) Pesan biru dulu
+      // 1) Pesan dulu
       appendMessage?.(
         lang==="de"
           ? "Super, dann sind wir fast fertig. Bitte trage deine Kontaktdaten ein:"
           : "Great, we’re almost done. Please enter your contact details:",
         "bot"
       );
-      // 2) Summary di bawah pesan
+      // 2) Summary sesudah pesan
       showSummaryFromFunnel(qualification);
-      // 3) Lalu form
+      // 3) Form
       injectLeadContactFormChat(productLabel, qualification);
 
       trackFE("contact_open", { product: mapProduct(productLabel), timeline: timelineValue });
