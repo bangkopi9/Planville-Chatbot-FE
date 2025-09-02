@@ -119,6 +119,7 @@ const productLabels = {
   pv:       { en: "Photovoltaic System ☀️", de: "Photovoltaikanlage ☀️" },
   roof:     { en: "Roof Renovation 🛠️", de: "Dachsanierung 🛠️" },
   tenant:   { en: "Tenant Power 🏠",    de: "Mieterstrom 🏠" },
+  window:   { en: "Windows 🪟",         de: "Fenster 🪟" },
 };
 
 // ========================
@@ -685,9 +686,9 @@ const Funnel = {
       heatpump: ['building_type','living_area','heating_type','insulation','install_timeline','property_street_number','contact_time_window'],
       aircon: ['building_type','rooms_count','cool_area','install_timeline','property_street_number','contact_time_window'],
       roof: ['roof_type','area_sqm','issues','install_timeline','property_street_number','contact_time_window'],
-      tenant: ['building_type','units','ownership','install_timeline','property_street_number','contact_time_window']
-    ,
-      window: ['window_type','window_count','needs_balcony_door','window_accessory','install_timeline','plz','contact_time_window']};
+      tenant: ['building_type','units','ownership','install_timeline','property_street_number','contact_time_window'],
+      window: ['window_type','window_count','needs_balcony_door','window_accessory','install_timeline','plz','contact_time_window']
+    };
     const needed = mapNeeded[this.state.product] || [];
     const answered = needed.filter(k => d[k] !== undefined && d[k] !== null && d[k] !== '').length;
     const percent = needed.length ? Math.min(100, Math.round((answered/needed.length)*100)) : 0;
@@ -720,9 +721,8 @@ function askNext() {
     case 'aircon': return askNextAC();
     case 'roof': return askNextRoof();
     case 'tenant': return askNextTenant();
-    
     case 'window': return askNextWindow();
-default: return;
+    default: return;
   }
 }
 
@@ -808,15 +808,12 @@ function askNextHP() {
       .map((t,i)=>({label:t, value:t.toLowerCase().replace(/\s/g,'_'), emoji:['🏠','🏠','🏘️','🏢','🏭'][i]}));
     return askCards(lang==="de"?'Welcher Gebäudetyp?':'What building type?', opts, 'building_type');
   }
-  
   if (d.living_area === undefined) {
     const opts = (lang==="de"
       ? ['bis 100 m²','101–200 m²','201–300 m²','über 300 m²']
       : ['up to 100 m²','101–200 m²','201–300 m²','over 300 m²'])
       .map((t,i)=>({ label:t, value:['<=100','101-200','201-300','>300'][i] }));
     return askCards(lang==="de"?'Wohnfläche?' : 'Living area?', opts, 'living_area');
-  }
-        $/.test(String(v||"").trim()));
   }
   if (d.heating_type === undefined) {
     const opts = (lang==="de" ? ['Gas','Öl','Stromdirekt','Andere'] : ['Gas','Oil','Direct electric','Other'])
@@ -865,23 +862,17 @@ function askNextAC() {
       .map((t,i)=>({label:t, value:t.toLowerCase().replace(/\s/g,'_'), emoji:['🏠','🏢','💼','🏭'][i]}));
     return askCards(lang==="de"?'Welcher Gebäudetyp?':'What building type?', opts, 'building_type');
   }
-  
   if (d.rooms_count === undefined) {
     const opts = (lang==="de" ? ['1 Raum','2 Räume','3 Räume','mehr als 3'] : ['1 room','2 rooms','3 rooms','more than 3'])
       .map((t,i)=>({ label:t, value:['1','2','3','>3'][i] }));
     return askCards(lang==='de' ? 'Wie viele Räume?' : 'How many rooms?', opts, 'rooms_count');
   }
-        $/.test(String(v||"").trim()));
-  }
-  
   if (d.cool_area === undefined) {
     const opts = (lang==="de"
       ? ['bis 30 m²','31–60 m²','61–100 m²','über 100 m²']
       : ['up to 30 m²','31–60 m²','61–100 m²','over 100 m²'])
       .map((t,i)=>({ label:t, value:['<=30','31-60','61-100','>100'][i] }));
     return askCards(lang==='de' ? 'Zu kühlende Fläche?' : 'Cooling area?', opts, 'cool_area');
-  }
-        $/.test(String(v||"").trim()));
   }
   if (d.install_timeline === undefined) {
     const opts = (lang==="de"
@@ -907,6 +898,99 @@ function askNextAC() {
   }
 }
 
+// ===== Roof Renovation flow =====
+function askNextRoof() {
+  const lang = (langSwitcher && langSwitcher.value) || "de";
+  const d = Funnel.state.data;
+  Funnel.progressByFields();
+
+  if (d.roof_type === undefined) {
+    const opts = (lang==="de" ? ['Flachdach','Satteldach','Walmdach','Andere'] : ['Flat','Gabled','Hipped','Other'])
+      .map(t => ({label:t, value:t.toLowerCase(), emoji:'🏚️'}));
+    return askCards(lang==="de"?'Dachform?':'Roof type?', opts, 'roof_type');
+  }
+  if (d.area_sqm === undefined) {
+    const opts = (lang==="de"
+      ? ['bis 50 m²','51–100 m²','101–200 m²','über 200 m²']
+      : ['up to 50 m²','51–100 m²','101–200 m²','over 200 m²'])
+      .map((t,i)=>({ label:t, value:['<=50','51-100','101-200','>200'][i] }));
+    return askCards(lang==='de' ? 'Dachfläche (ca.)?' : 'Approx. roof area?', opts, 'area_sqm');
+  }
+  if (d.issues === undefined) {
+    const opts = (lang==="de" ? ['Undicht','Beschädigt','Alterung','Nur Inspektion'] : ['Leaking','Damaged','Aged','Inspection only'])
+      .map(t=>({label:t, value:t.toLowerCase().replace(/\s/g,'_'), emoji:'🛠️'}));
+    return askCards(Q.issues_q[lang], opts, 'issues');
+  }
+  if (d.install_timeline === undefined) {
+    const opts = (lang==="de"
+      ? [{label:'Schnellstmöglich', value:'asap'},{label:'1–3 Monate', value:'1-3'},{label:'4–6 Monate', value:'4-6'},{label:'>6 Monate', value:'>6'}]
+      : [{label:'ASAP', value:'asap'},{label:'1–3 months', value:'1-3'},{label:'4–6 months', value:'4-6'},{label:'>6 months', value:'>6'}]);
+    return askCards(Q.install_timeline_q[lang], opts, 'install_timeline');
+  }
+  if (d.property_street_number === undefined) {
+    return askInput(Q.property_street_q[lang], 'property_street_number', v => (v||"").trim().length > 3);
+  }
+  if (d.contact_time_window === undefined) {
+    const opts = (lang==="de"
+      ? ['08:00–12:00','12:00–16:00','16:00–20:00','Egal / zu jeder Zeit']
+      : ['08:00–12:00','12:00–16:00','16:00–20:00','Any time'])
+      .map(t => ({label:t, value:t}));
+    return askCards(Q.contact_time_q[lang], opts, 'contact_time_window');
+  }
+  if (!d.__roof_done) {
+    d.__roof_done = true;
+    appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
+    if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
+    if (typeof window.injectLeadContactFormChat === "function") window.injectLeadContactFormChat(Funnel.state.productLabel || "Dachsanierung", d);
+  }
+}
+
+// ===== Tenant Power flow =====
+function askNextTenant() {
+  const lang = (langSwitcher && langSwitcher.value) || "de";
+  const d = Funnel.state.data;
+  Funnel.progressByFields();
+
+  if (d.building_type === undefined) {
+    const opts = (lang==="de" ? ['Mehrfamilienhaus','Gewerbeimmobilie'] : ['Multi-family','Commercial'])
+      .map((t,i)=>({label:t, value:t.toLowerCase().replace(/\s/g,'_'), emoji:['🏢','🏭'][i]}));
+    return askCards(Q.building_type_q[lang], opts, 'building_type');
+  }
+  if (d.units === undefined) {
+    const opts = (lang==="de"
+      ? ['1–3','4–10','11–20','über 20']
+      : ['1–3','4–10','11–20','over 20'])
+      .map((t,i)=>({ label:t, value:['1-3','4-10','11-20','>20'][i] }));
+    return askCards(lang==='de' ? 'Anzahl Wohneinheiten?' : 'Number of units?', opts, 'units');
+  }
+  if (d.ownership === undefined) {
+    const opts = (lang==="de" ? ['Ja','Nein'] : ['Yes','No'])
+      .map((t,i)=>({label:t, value:i===0, emoji:i===0?'🔑':'🚫'}));
+    return askCards(Q.ownership_q[lang], opts, 'ownership');
+  }
+  if (d.install_timeline === undefined) {
+    const opts = (lang==="de"
+      ? [{label:'Schnellstmöglich', value:'asap'},{label:'1–3 Monate', value:'1-3'},{label:'4–6 Monate', value:'4-6'},{label:'>6 Monate', value:'>6'}]
+      : [{label:'ASAP', value:'asap'},{label:'1–3 months', value:'1-3'},{label:'4–6 months', value:'4-6'},{label:'>6 months', value:'>6'}]);
+    return askCards(Q.install_timeline_q[lang], opts, 'install_timeline');
+  }
+  if (d.property_street_number === undefined) {
+    return askInput(Q.property_street_q[lang], 'property_street_number', v => (v||"").trim().length > 3);
+  }
+  if (d.contact_time_window === undefined) {
+    const opts = (lang==="de"
+      ? ['08:00–12:00','12:00–16:00','16:00–20:00','Egal / zu jeder Zeit']
+      : ['08:00–12:00','12:00–16:00','16:00–20:00','Any time'])
+      .map(t => ({label:t, value:t}));
+    return askCards(Q.contact_time_q[lang], opts, 'contact_time_window');
+  }
+  if (!d.__tenant_done) {
+    d.__tenant_done = true;
+    appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
+    if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
+    if (typeof window.injectLeadContactFormChat === "function") window.injectLeadContactFormChat(Funnel.state.productLabel || "Mieterstrom", d);
+  }
+}
 
 // ===== Window (Fenster) flow =====
 function askNextWindow() {
@@ -959,109 +1043,6 @@ function askNextWindow() {
     appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
     if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
     if (typeof window.injectLeadContactFormChat === "function") window.injectLeadContactFormChat(Funnel.state.productLabel || "Fenster", d);
-  }
-}
-
-
-
-
-// ===== Roof Renovation flow =====
-function askNextRoof() {
-  const lang = (langSwitcher && langSwitcher.value) || "de";
-  const d = Funnel.state.data;
-  Funnel.progressByFields();
-
-  if (d.roof_type === undefined) {
-    const opts = (lang==="de" ? ['Flachdach','Satteldach','Walmdach','Andere'] : ['Flat','Gabled','Hipped','Other'])
-      .map(t => ({label:t, value:t.toLowerCase(), emoji:'🏚️'}));
-    return askCards(lang==="de"?'Dachform?':'Roof type?', opts, 'roof_type');
-  }
-  
-  if (d.area_sqm === undefined) {
-    const opts = (lang==="de"
-      ? ['bis 50 m²','51–100 m²','101–200 m²','über 200 m²']
-      : ['up to 50 m²','51–100 m²','101–200 m²','over 200 m²'])
-      .map((t,i)=>({ label:t, value:['<=50','51-100','101-200','>200'][i] }));
-    return askCards(lang==='de' ? 'Dachfläche (ca.)?' : 'Approx. roof area?', opts, 'area_sqm');
-  }
-        $/.test(String(v||"").trim()));
-  }
-  if (d.issues === undefined) {
-    const opts = (lang==="de" ? ['Undicht','Beschädigt','Alterung','Nur Inspektion'] : ['Leaking','Damaged','Aged','Inspection only'])
-      .map(t=>({label:t, value:t.toLowerCase().replace(/\s/g,'_'), emoji:'🛠️'}));
-    return askCards(Q.issues_q[lang], opts, 'issues');
-  }
-  if (d.install_timeline === undefined) {
-    const opts = (lang==="de"
-      ? [{label:'Schnellstmöglich', value:'asap'},{label:'1–3 Monate', value:'1-3'},{label:'4–6 Monate', value:'4-6'},{label:'>6 Monate', value:'>6'}]
-      : [{label:'ASAP', value:'asap'},{label:'1–3 months', value:'1-3'},{label:'4–6 months', value:'4-6'},{label:'>6 months', value:'>6'}]);
-    return askCards(Q.install_timeline_q[lang], opts, 'install_timeline');
-  }
-  if (d.property_street_number === undefined) {
-    return askInput(Q.property_street_q[lang], 'property_street_number', v => (v||"").trim().length > 3);
-  }
-  if (d.contact_time_window === undefined) {
-    const opts = (lang==="de"
-      ? ['08:00–12:00','12:00–16:00','16:00–20:00','Egal / zu jeder Zeit']
-      : ['08:00–12:00','12:00–16:00','16:00–20:00','Any time'])
-      .map(t => ({label:t, value:t}));
-    return askCards(Q.contact_time_q[lang], opts, 'contact_time_window');
-  }
-  if (!d.__roof_done) {
-    d.__roof_done = true;
-    appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
-    if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
-    if (typeof window.injectLeadContactFormChat === "function") window.injectLeadContactFormChat(Funnel.state.productLabel || "Dachsanierung", d);
-  }
-}
-
-// ===== Tenant Power flow =====
-function askNextTenant() {
-  const lang = (langSwitcher && langSwitcher.value) || "de";
-  const d = Funnel.state.data;
-  Funnel.progressByFields();
-
-  if (d.building_type === undefined) {
-    const opts = (lang==="de" ? ['Mehrfamilienhaus','Gewerbeimmobilie'] : ['Multi-family','Commercial'])
-      .map((t,i)=>({label:t, value:t.toLowerCase().replace(/\s/g,'_'), emoji:['🏢','🏭'][i]}));
-    return askCards(Q.building_type_q[lang], opts, 'building_type');
-  }
-  
-  if (d.units === undefined) {
-    const opts = (lang==="de"
-      ? ['1–3','4–10','11–20','über 20']
-      : ['1–3','4–10','11–20','over 20'])
-      .map((t,i)=>({ label:t, value:['1-3','4-10','11-20','>20'][i] }));
-    return askCards(lang==='de' ? 'Anzahl Wohneinheiten?' : 'Number of units?', opts, 'units');
-  }
-        $/.test(String(v||"").trim()));
-  }
-  if (d.ownership === undefined) {
-    const opts = (lang==="de" ? ['Ja','Nein'] : ['Yes','No'])
-      .map((t,i)=>({label:t, value:i===0, emoji:i===0?'🔑':'🚫'}));
-    return askCards(Q.ownership_q[lang], opts, 'ownership');
-  }
-  if (d.install_timeline === undefined) {
-    const opts = (lang==="de"
-      ? [{label:'Schnellstmöglich', value:'asap'},{label:'1–3 Monate', value:'1-3'},{label:'4–6 Monate', value:'4-6'},{label:'>6 Monate', value:'>6'}]
-      : [{label:'ASAP', value:'asap'},{label:'1–3 months', value:'1-3'},{label:'4–6 months', value:'4-6'},{label:'>6 months', value:'>6'}]);
-    return askCards(Q.install_timeline_q[lang], opts, 'install_timeline');
-  }
-  if (d.property_street_number === undefined) {
-    return askInput(Q.property_street_q[lang], 'property_street_number', v => (v||"").trim().length > 3);
-  }
-  if (d.contact_time_window === undefined) {
-    const opts = (lang==="de"
-      ? ['08:00–12:00','12:00–16:00','16:00–20:00','Egal / zu jeder Zeit']
-      : ['08:00–12:00','12:00–16:00','16:00–20:00','Any time'])
-      .map(t => ({label:t, value:t}));
-    return askCards(Q.contact_time_q[lang], opts, 'contact_time_window');
-  }
-  if (!d.__tenant_done) {
-    d.__tenant_done = true;
-    appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
-    if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
-    if (typeof window.injectLeadContactFormChat === "function") window.injectLeadContactFormChat(Funnel.state.productLabel || "Mieterstrom", d);
   }
 }
 
@@ -1205,7 +1186,7 @@ function openLeadFloatForm(productLabel, qualification) {
     if (qualification?.property_street_number) ov.querySelector('#lf_addr').value = String(qualification.property_street_number);
     if (qualification?.plz) ov.querySelector('#lf_plz').value = String(qualification.plz);
     if (qualification?.contact_time_window) ov.querySelector('#lf_best').value = String(qualification.contact_time_window);
-  }catch(_){}
+  }catch(_){}}
 
   ov.querySelector('#lf_cancel').onclick = () => ov.remove();
 
