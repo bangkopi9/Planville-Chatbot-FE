@@ -72,23 +72,23 @@
     return (lang === "en") ? "Photovoltaic" : "Photovoltaik";
   }
 
+  // === konsisten: Pesan biru → Summary → Form ===
   function openFormNow(lang) {
     const L = TXT[lang] || TXT.de;
+    const productLabel = getProductLabel(lang);
+    const qualification = global.Funnel?.state?.data ? { ...global.Funnel.state.data } : {};
 
-    // tampilkan summary jika ada data funnel
+    // 1) pesan pengantar dulu (biru)
+    appendMessage?.(`${L.fallback} ${L.toForm}`, "bot");
+
+    // 2) tampilkan summary bila ada data
     try {
-      const qualification = global.Funnel?.state?.data || null;
       if (qualification && typeof global.showSummaryFromFunnel === "function") {
         global.showSummaryFromFunnel(qualification);
       }
     } catch (_) {}
 
-    // pesan pengantar → arahkan langsung ke form
-    appendMessage?.(`${L.fallback} ${L.toForm}`, "bot");
-
-    const productLabel = getProductLabel(lang);
-    const qualification = global.Funnel?.state?.data ? { ...global.Funnel.state.data } : {};
-
+    // 3) render form kontak
     if (typeof global.injectLeadContactFormChat === "function") {
       global.injectLeadContactFormChat(productLabel, qualification);
     } else if (typeof global.askContact === "function") {
@@ -181,4 +181,3 @@
 
   global.AIGuard = AIGuard;
 })(window);
-
