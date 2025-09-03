@@ -51,6 +51,31 @@
       return "pv";
     }
     function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e||"").trim()); }
+
+    // Grab meta funnel dari chatbot (robust; aman kalau belum ada)
+    function getFunnelMeta(){
+      try{
+        const st = window.Funnel?.state || {};
+        const id = st.id || st.funnelId || "default";
+        const version = st.version || st.funnelVersion || "v1";
+
+        const src = Array.isArray(st.trace) ? st.trace
+                  : Array.isArray(st.steps) ? st.steps
+                  : Array.isArray(st.log)   ? st.log
+                  : null;
+
+        const trace = src
+          ? src.map(s => ({
+              id:    s?.id ?? s?.key ?? "",
+              key:   s?.key ?? s?.id ?? "",
+              label: s?.label ?? s?.title ?? "",
+              value: s?.value ?? s?.answer ?? s?.selected ?? ""
+            }))
+          : null;
+
+        return { id, version, trace };
+      }catch(_){ return { id:"default", version:"v1", trace:null }; }
+    }
   </script>
 </head>
 
@@ -463,6 +488,9 @@
       const detail = computeLeadScoreDetailV4(product, q, { name, email, phone, address });
       const { score, priority, confidence, score_breakdown, components, tags, risk_flags, next_action, sla_minutes, routing } = detail;
 
+      // --- NEW: meta funnel (id, version, trace) ---
+      const { id: funnel_id, version: funnel_version, trace: funnel_trace } = getFunnelMeta();
+
       const summary = buildLeadSummary(lang, productLabel, q);
       const payload = {
         source: "Website Funnel",
@@ -476,10 +504,17 @@
         next_action, sla_minutes, routing,
         summary,
         notes: origin ? `Submitted via ${origin}` : "Submitted via chat funnel form",
-        meta: { lang, session_id: sessionId(), variant: (localStorage.getItem("ab_variant") || "A") }
+        meta: {
+          lang,
+          session_id: sessionId(),
+          variant: (localStorage.getItem("ab_variant") || "A"),
+          // NEW: kirim meta funnel
+          funnel_id, funnel_version,
+          funnel_trace
+        }
       };
 
-      trackFE("contact_submit", { product, origin: origin||"unknown", priority, score });
+      trackFE("contact_submit", { product, origin: origin||"unknown", priority, score, confidence });
       logLeadToGoogleSheet(payload);
 
       const res = await fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
@@ -567,6 +602,10 @@
       const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
       const qualification = (window.Funnel?.state?.data) || {};
       const summary = buildLeadSummary(lang, productLabel, qualification);
+
+      // NEW: meta funnel juga dikirim saat disqualify
+      const { id: funnel_id, version: funnel_version, trace: funnel_trace } = getFunnelMeta();
+
       const payload = {
         source: "Website Funnel",
         product: mapProduct(productLabel),
@@ -584,7 +623,12 @@
         disqualified: true,
         summary,
         notes: "Auto-disqualify gate",
-        meta: { lang, session_id: sessionId(), variant: (localStorage.getItem("ab_variant") || "A") }
+        meta: {
+          lang,
+          session_id: sessionId(),
+          variant: (localStorage.getItem("ab_variant") || "A"),
+          funnel_id, funnel_version, funnel_trace
+        }
       };
       try { logLeadToGoogleSheet(payload); fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) }); } catch(_){ }
       trackFE("disqualify", { product: payload.product, reason: payload.qualification.disqualify_reason });
