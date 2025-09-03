@@ -12,12 +12,12 @@
 
   <!-- ===== Global Config ===== -->
   <script>
-    // Boleh dibiarkan untuk future use; TIDAK dipakai kalau sudah pakai Vercel rewrites
+    // Backend base (Railway) – optional, safe fallback
     window.CONFIG = {
       BASE_API_URL: "https://web-production-352d9.up.railway.app"
     };
 
-    // Helper _api fallback (kalau belum didefinisikan di file lain)
+    // _api helper (fallback)
     if (!window._api) {
       window._api = function(path){
         try{
@@ -28,7 +28,7 @@
       };
     }
 
-    // GANTI jika kamu redeploy GAS (pakai URL /macros/s/.../exec)
+    // Google Apps Script Webhook
     const GS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyKLXl0OVZuGNsSxMDlz-tt4zGLx9kCyUSqlKZgfPCPx5TizWGS-8FfURRLJYFW8F_9/exec";
     const GS_WEBHOOK_SECRET = "PV_LEADS_WEBHOOK_SECRET_8e2c7f4fb2c3412cbbde2f3e9a0c7b51";
 
@@ -42,10 +42,11 @@
     function mapProduct(p){
       const t = (p||"").toLowerCase();
       if (t.includes("photo") || t.includes("pv")) return "pv";
-      if (t.includes("dach") || t.includes("roof")) return "dach";
-      if (t.includes("wärme") || t.includes("waerme") || t.includes("heat") || t.includes("wp")) return "wp";
-      if (t.includes("mieter") || t.includes("tenant")) return "mieterstrom";
-      if (t.includes("klima") || t.includes("air con")) return "wp";
+      if (t.includes("dach") || t.includes("roof")) return "roof";
+      if (t.includes("wärme") || t.includes("waerme") || t.includes("heat") || t.includes("wp")) return "heatpump";
+      if (t.includes("mieter") || t.includes("tenant")) return "tenant";
+      if (t.includes("klima") || t.includes("air con") || t.includes("aircon")) return "aircon";
+      if (t.includes("fenster") || t.includes("window")) return "window";
       if (t.includes("speicher") || t.includes("battery")) return "pv";
       return "pv";
     }
@@ -101,11 +102,11 @@
     </div>
   </div>
 
-  <!-- ⚙️ AI guard (patched) + Chatbot -->
+  <!-- ⚙️ AI guard (patched) + Chatbot core -->
   <script defer src="ai_guardrails_vlite.patched.js"></script>
   <script defer src="chatbot.js"></script>
 
-  <!-- 🧠 GA4 & Event/Lead helpers + bootstrapping -->
+  <!-- 🧠 GA4 & Event/Lead helpers + Scoring v4 + bootstrapping -->
   <script>
     /* ---------- Consent & Analytics Gate ---------- */
     function getConsentState(){
@@ -138,39 +139,216 @@
       } catch(_) {}
     }
 
-    /* ---------- Simple scoring ---------- */
-    function computeLeadScore(product, q = {}) {
-      const p = (product || "").toLowerCase();
-      const area = parseFloat(q.area_sqm || q.dachflache_m2 || 0) || 0;
-      const orient = String(q.orientation || q.ausrichtung || "").toLowerCase();
-      const verschattung = String(q.verschattung || "").toLowerCase();
-      const consKwh = parseInt(q.consumption_kwh || q.verbrauch_kwh || 0, 10) || 0;
-      const timeline = String(q.timeline || q.zeitrahmen || "").toLowerCase();
+    /* ---------- SCORING ENGINE v4 (advanced, product-aware) ---------- */
+    (function(){
+      const S = (v) => (v === undefined || v === null) ? "" : String(v).trim();
+      const N = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+      const pick = (o, ...keys) => { for (const k of keys) { const v = o?.[k]; if (v !== undefined && v !== null && S(v) !== "" && S(v) !== "-") return v; } };
+      const yes = (v) => (typeof v === "boolean") ? v : /^(ja|yes|true|y|ya|1)$/i.test(S(v));
+      const clamp01 = (x) => Math.max(0, Math.min(1, x));
+      const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+      const normProd = (p="") => {
+        p = p.toLowerCase();
+        if (/(pv|photo|solar)/.test(p)) return "pv";
+        if (/(roof|dach)/.test(p)) return "roof";
+        if (/(wärme|waerme|wp|heat)/.test(p)) return "heatpump";
+        if (/(aircon|klima)/.test(p)) return "aircon";
+        if (/(mieter|tenant)/.test(p)) return "tenant";
+        if (/(fenster|window)/.test(p)) return "window";
+        return "pv";
+      };
 
-      let score = 50;
-      if (area >= 60) score += 10;
-      if (consKwh >= 3500) score += 6;
-      if (timeline === "0-3" || timeline.includes("sofort") || timeline.includes("1-3")) score += 10;
+      const CFG = {
+        pv:    { expect: ["install_timeline","ownership","area_sqm","consumption_kwh","orientation","shading","storage_interest","roof_access_ok","budget_ready","self_occupied"], w:{ urgency:.18, authority:.12, need:.06, potential:.24, feasibility:.18, readiness:.12, data:.10 } },
+        roof:  { expect: ["install_timeline","ownership","area_sqm","issues","roof_access_ok","budget_ready","self_occupied"], w:{ urgency:.20, authority:.12, need:.24, potential:.16, feasibility:.12, readiness:.08, data:.08 } },
+        heatpump:{ expect:["install_timeline","ownership","living_area","heating_type","insulation","pv_interest","budget_ready","self_occupied"], w:{ urgency:.18, authority:.10, need:.12, potential:.22, feasibility:.20, readiness:.10, data:.08 } },
+        aircon:{ expect:["install_timeline","ownership","cool_area","rooms_count","budget_ready","self_occupied"], w:{ urgency:.20, authority:.10, need:.08, potential:.30, feasibility:.14, readiness:.10, data:.08 } },
+        tenant:{ expect:["install_timeline","ownership","units","weg_ok","roof_access_ok","budget_ready"], w:{ urgency:.18, authority:.14, need:.10, potential:.30, feasibility:.14, readiness:.08, data:.06 } },
+        window:{ expect:["install_timeline","ownership","windows_count","window_issues","glazing_preference","budget_ready","self_occupied"], w:{ urgency:.18, authority:.10, need:.18, potential:.22, feasibility:.12, readiness:.10, data:.10 } }
+      };
 
-      if (["pv","photovoltaik","pv-anlage"].some(k => p.includes(k))) {
-        if (/(süd|sued|south)/.test(orient)) score += 8;
-        if (verschattung === "keine" || verschattung === "leicht" || /none|light/.test(verschattung)) score += 6;
+      function extractCtx(product, q={}, contact={}){
+        const kind = normProd(product);
+        const timeline = S(pick(q,"install_timeline","timeline","zeitrahmen")).toLowerCase();
+        const ownership   = yes(pick(q,"ownership","owner","ist_eigentuemer"));
+        const selfOcc     = yes(pick(q,"self_occupied","selbst_bewohnt"));
+        const areaRoof    = N(pick(q,"area_sqm","dachflache_m2","roof_area"));
+        const orient      = S(pick(q,"orientation","ausrichtung")).toLowerCase();
+        const shading     = S(pick(q,"shading","verschattung")).toLowerCase();
+        const consumption = N(pick(q,"consumption_kwh","jahresverbrauch_kwh","stromverbrauch_kwh","verbrauch_kwh"));
+        const storage     = yes(pick(q,"storage_interest","battery_jn","speicher_interesse"));
+        const roofAccess  = yes(pick(q,"roof_access_ok","dachzugang_ok"));
+        const issues      = S(pick(q,"issues","dach_problem","roof_issues")).toLowerCase();
+        const livingArea  = N(pick(q,"living_area","wohnflache_m2"));
+        const boilerType  = S(pick(q,"heating_type","heizung_typ")).toLowerCase();
+        const insulation  = S(pick(q,"insulation","daemmung")).toLowerCase();
+        const pvInterest  = yes(pick(q,"pv_interest","pv_combo","pv_jn"));
+        const coolArea    = N(pick(q,"cool_area","kuhlflache_m2"));
+        const roomsCount  = N(pick(q,"rooms_count","anzahl_raeume"));
+        const units       = N(pick(q,"units","anzahl_wohnungen","einheiten"));
+        const hoaOk       = yes(pick(q,"weg_ok","hoa_ok","owner_association_ok"));
+        const windowsCnt  = N(pick(q,"windows_count","fenster_anzahl"));
+        const glazingPref = S(pick(q,"glazing_preference","verglasung")).toLowerCase();
+        const windowProb  = S(pick(q,"window_issues","fenster_problem")).toLowerCase();
+        const budgetReady = yes(pick(q,"budget_ready","finanzierung_ok","kredit_ok"));
+        const name   = S(contact?.name || "");
+        const email  = S(contact?.email || "");
+        const phone  = S(contact?.phone || "");
+        const addr   = S(contact?.address || "");
+        return { kind, timeline, ownership, selfOcc, areaRoof, orient, shading, consumption, storage, roofAccess, issues, livingArea, boilerType, insulation, pvInterest, coolArea, roomsCount, units, hoaOk, windowsCnt, glazingPref, windowProb, budgetReady, name, email, phone, addr };
       }
-      if (p.includes("dach") || p.includes("roof")) {
-        if (["undicht","leak","damage","beschädigt"].some(k => (q.issues||"").toLowerCase().includes(k))) score += 10;
-      }
-      if (p.includes("wp") || p.includes("wärme") || p.includes("waerme") || p.includes("heat")) {
-        if (parseFloat(q.living_area || 0) >= 80) score += 10;
-        if (q.pv_combo === true) score += 6;
-      }
-      if (p.includes("mieter") || p.includes("tenant")) {
-        if (parseInt(q.units || 0, 10) >= 6) score += 10;
-        if (q.owner2 === true) score += 8;
-      }
-      if (q.qualified === false || q.disqualifyReason) score = 0;
 
-      return Math.max(0, Math.min(100, score));
-    }
+      function catUrgency(t) {
+        const r = []; let v = 0.0; const s = (t||"").toLowerCase();
+        if (/(^0-3|1-3|sofort|jetzt)/.test(s)) { v = 1.0; r.push("Urgency: 0–3 mo / sofort"); }
+        else if (/(4-6|3-6)/.test(s)) { v = 0.6; r.push("Urgency: 3–6 mo"); }
+        else if (/(6-12|>6|12\+)/.test(s)) { v = 0.3; r.push("Urgency: 6–12 mo"); }
+        else { v = 0.1; r.push("Urgency: >12 mo / unknown"); }
+        return [v, r];
+      }
+      function catAuthority(own, selfOcc, extras=[]) {
+        let v = 0; const r = [];
+        if (own) { v += 0.8; r.push("Owner"); }
+        if (selfOcc) { v += 0.2; r.push("Self-occupied"); }
+        extras.forEach(x => { if (x[0]) { v += x[1]; r.push(x[2]); } });
+        return [clamp01(v), r];
+      }
+      function catDataQuality(ctx, expectKeys) {
+        const alias = {
+          install_timeline:"timeline", area_sqm:"areaRoof", consumption_kwh:"consumption", storage_interest:"storage", roof_access_ok:"roofAccess", orientation:"orient", shading:"shading", budget_ready:"budgetReady", self_occupied:"selfOcc", living_area:"livingArea", heating_type:"boilerType", insulation:"insulation", pv_interest:"pvInterest", cool_area:"coolArea", rooms_count:"roomsCount", units:"units", weg_ok:"hoaOk", windows_count:"windowsCnt", glazing_preference:"glazingPref", window_issues:"windowProb", ownership:"ownership"
+        };
+        const mapKey = (k)=> alias[k]||k;
+        const present = expectKeys.filter(k => ctx.hasOwnProperty(mapKey(k)) ? (S(ctx[mapKey(k)]) !== "" || typeof ctx[mapKey(k)] === "boolean" || typeof ctx[mapKey(k)] === "number") : false).length;
+        const comp = expectKeys.length ? present / expectKeys.length : 1;
+        const r = [ `Completeness: ${ (comp*100|0) }%` ];
+        const flags = [];
+        const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ctx.email);
+        const phoneDigits = ctx.phone.replace(/\D/g,"").length;
+        const phoneOk = phoneDigits >= 9;
+        const addrOk = ctx.addr.length >= 8;
+        if (!emailOk) flags.push("invalid_email");
+        if (!phoneOk) flags.push("short_phone");
+        if (!addrOk)  flags.push("short_address");
+        let v = 0.5*comp + 0.5*((emailOk?1:0)*0.4 + (phoneOk?1:0)*0.4 + (addrOk?1:0)*0.2);
+        v = clamp01(v);
+        if (flags.length) r.push(`Flags: ${flags.join(", ")}`);
+        return [v, r, flags];
+      }
+      function catReadiness(budgetReady) {
+        const r = []; let v = 0.4;
+        if (budgetReady) { v = 1.0; r.push("Budget/Financing ready"); }
+        else r.push("Budget unknown/undecided");
+        return [v, r];
+      }
+
+      // PV
+      function catPV_Need(ctx){ return [0.3, ["General interest"]]; }
+      function catPV_Potential(ctx){ let v=0,r=[]; if (ctx.areaRoof>=60){v+=0.35;r.push("Roof area ≥60 m²");} if(ctx.areaRoof>=100){v+=0.15;r.push("Roof area ≥100 m²");} if(ctx.consumption>=3500){v+=0.25;r.push("Consumption ≥3.5 MWh");} if(ctx.consumption>=5000){v+=0.15;r.push("Consumption ≥5 MWh");} if(ctx.storage){v+=0.10;r.push("Battery interest");} return [clamp01(v),r]; }
+      function catPV_Feas(ctx){ let v=0,r=[]; if(/(süd|sued|south)/.test(ctx.orient)){v+=0.5;r.push("Orientation south");} if(/(keine|leicht|none|light)/.test(ctx.shading)){v+=0.3;r.push("Shading none/light");} if(ctx.roofAccess){v+=0.2;r.push("Roof access OK");} return [clamp01(v),r]; }
+
+      // Roof
+      function catRoof_Need(ctx){ let v=0,r=[]; if(/(undicht|leak|damage|beschädigt|infiltration)/.test(ctx.issues)){v=1.0;r.push("Leak/Damage");} else if(/(alt|>20|aged|old)/.test(ctx.issues)){v=0.6;r.push("Roof aged");} else r.push("Minor/unknown issues"); return [clamp01(v),r]; }
+      function catRoof_Potential(ctx){ let v=0,r=[]; if(ctx.areaRoof>=100){v+=0.6;r.push("Area ≥100 m²");} if(ctx.areaRoof>=160){v+=0.4;r.push("Area ≥160 m²");} return [clamp01(v),r]; }
+      function catRoof_Feas(ctx){ let v=0,r=[]; if(ctx.roofAccess){v=1.0;r.push("Roof access OK");} return [clamp01(v),r]; }
+
+      // Heatpump
+      function catHP_Need(ctx){ let v=0,r=[]; if(/(gas|öl|oel|oil|elektr)/.test(ctx.boilerType)){v=1.0;r.push("Existing: gas/oil/electric");} else if(/(fern|district|pellet)/.test(ctx.boilerType)){v=0.5;r.push("Existing: district/pellet");} else r.push("Unknown boiler"); return [clamp01(v),r]; }
+      function catHP_Potential(ctx){ let v=0,r=[]; if(ctx.livingArea>=80){v+=0.6;r.push("Living area ≥80 m²");} if(ctx.livingArea>=120){v+=0.4;r.push("Living area ≥120 m²");} if(ctx.pvInterest){v+=0.1;r.push("PV combo interest");} return [clamp01(v),r]; }
+      function catHP_Feas(ctx){ let v=0,r=[]; if(/(good|gut|modern|saniert)/.test(ctx.insulation)){v=1.0;r.push("Insulation good");} else if(/(medium|mittel)/.test(ctx.insulation)){v=0.6;r.push("Insulation medium");} else if(/(poor|schlecht|unsaniert|alt)/.test(ctx.insulation)){v=0.3;r.push("Insulation poor");} else r.push("Insulation unknown"); return [clamp01(v),r]; }
+
+      // Aircon
+      function catAC_Need(ctx){ return [0.4, ["Comfort need (assumed)"]]; }
+      function catAC_Potential(ctx){ let v=0,r=[]; if(ctx.coolArea>=50){v+=0.6;r.push("Cooling area ≥50 m²");} if(ctx.coolArea>=100){v+=0.4;r.push("Cooling area ≥100 m²");} if(ctx.roomsCount>=3){v+=0.2;r.push("Rooms ≥3");} if(ctx.roomsCount>=5){v+=0.2;r.push("Rooms ≥5");} return [clamp01(v),r]; }
+      function catAC_Feas(ctx){ return [1.0,["Feasible (default)"]]; }
+
+      // Tenant
+      function catTenant_Need(ctx){ return [0.6,["Energy cost & ESG (assumed)"]]; }
+      function catTenant_Potential(ctx){ let v=0,r=[]; if(ctx.units>=6){v+=0.6;r.push("Units ≥6");} if(ctx.units>=12){v+=0.4;r.push("Units ≥12");} return [clamp01(v),r]; }
+      function catTenant_Feas(ctx){ let v=0,r=[]; if(ctx.hoaOk){v+=0.6;r.push("WEG/HOA approval");} if(ctx.roofAccess){v+=0.4;r.push("Roof access OK");} return [clamp01(v),r]; }
+
+      // Window
+      function catWindow_Need(ctx){ let v=0,r=[]; if(/(draft|luft|kondens|condens|leak)/.test(ctx.windowProb)){v=1.0;r.push("Draft/Condensation/Leak");} else r.push("Minor/unknown issues"); return [clamp01(v),r]; }
+      function catWindow_Potential(ctx){ let v=0,r=[]; if(ctx.windowsCnt>=5){v+=0.6;r.push("Windows ≥5");} if(ctx.windowsCnt>=10){v+=0.4;r.push("Windows ≥10");} if(/(triple|dreifach)/.test(ctx.glazingPref)){v+=0.2;r.push("Triple-glazing pref");} return [clamp01(v),r]; }
+      function catWindow_Feas(ctx){ return [1.0,["Feasible (default)"]]; }
+
+      function toPriority(score, urgent) {
+        if (score <= 0) return "P0-BLOCK";
+        if (score >= 80 || (score >= 70 && urgent)) return "P1-HOT";
+        if (score >= 60) return "P2-WARM";
+        return "P3-COLD";
+      }
+      function confidenceFrom(compScore, riskFlags) {
+        const riskPenalty = riskFlags.length ? Math.min(0.4, 0.1 * riskFlags.length) : 0;
+        return clamp01(0.4 + 0.6*compScore - riskPenalty);
+      }
+      function decisionFrom(priority, conf, riskFlags) {
+        if (priority === "P0-BLOCK") return { next_action: "Do not contact (blocked)", sla_minutes: null, routing: "N/A" };
+        if (priority === "P1-HOT" && conf >= 0.6 && riskFlags.length === 0)
+          return { next_action: "Call now", sla_minutes: 30, routing: "Sales-Senior" };
+        if (priority === "P1-HOT")
+          return { next_action: "Verify contact → Call", sla_minutes: 60, routing: "Sales" };
+        if (priority === "P2-WARM")
+          return { next_action: "Call same day + send brochure", sla_minutes: 240, routing: "Inside Sales" };
+        return { next_action: "Nurture (email/WhatsApp) + retargeting", sla_minutes: 1440, routing: "Marketing Ops" };
+      }
+
+      // Public API
+      window.computeLeadScoreDetailV4 = function(product, q={}, contact={}){
+        if (q.qualified === false || q.disqualifyReason) {
+          return { score:0, priority:"P0-BLOCK", confidence:1.0, score_breakdown:"Disqualified by guardrail", components:{}, tags:["DISQUALIFIED"], risk_flags:["guardrail_disqualify"], next_action:"Do not contact (blocked)", sla_minutes:null, routing:"N/A" };
+        }
+        const kind = normProd(product);
+        const ctx  = extractCtx(kind, q, contact);
+        const { w, expect } = CFG[kind];
+
+        const [u, rU] = catUrgency(ctx.timeline);
+        const [a, rA] = catAuthority(ctx.ownership, ctx.selfOcc, kind==="tenant" ? [[ctx.hoaOk, .2, "WEG/HOA approval"]] : []);
+        const [rd, rRD] = catReadiness(ctx.budgetReady);
+
+        let n=0, rN=[], p=0, rP=[], f=0, rF=[];
+        if (kind==="pv")       { [n,rN]=catPV_Need(ctx); [p,rP]=catPV_Potential(ctx); [f,rF]=catPV_Feas(ctx); }
+        else if (kind==="roof"){ [n,rN]=catRoof_Need(ctx);[p,rP]=catRoof_Potential(ctx);[f,rF]=catRoof_Feas(ctx); }
+        else if (kind==="heatpump"){ [n,rN]=catHP_Need(ctx);[p,rP]=catHP_Potential(ctx);[f,rF]=catHP_Feas(ctx); }
+        else if (kind==="aircon"){ [n,rN]=catAC_Need(ctx); [p,rP]=catAC_Potential(ctx); [f,rF]=catAC_Feas(ctx); }
+        else if (kind==="tenant"){ [n,rN]=catTenant_Need(ctx);[p,rP]=catTenant_Potential(ctx);[f,rF]=catTenant_Feas(ctx); }
+        else if (kind==="window"){ [n,rN]=catWindow_Need(ctx);[p,rP]=catWindow_Potential(ctx);[f,rF]=catWindow_Feas(ctx); }
+
+        const [dq, rDQ, risk_flags] = catDataQuality(ctx, expect);
+
+        const score = (u*w.urgency + a*w.authority + n*w.need + p*w.potential + f*w.feasibility + rd*w.readiness + dq*w.data) * 100;
+        const urgent = /(0-3|1-3|sofort|jetzt)/.test(ctx.timeline);
+        const priority = toPriority(Math.round(score), urgent);
+        const confidence = confidenceFrom(dq, risk_flags);
+        const decision = decisionFrom(priority, confidence, risk_flags);
+
+        const components = {
+          urgency:      { value:+(u.toFixed(2)), weight:w.urgency },
+          authority:    { value:+(a.toFixed(2)), weight:w.authority },
+          need:         { value:+(n.toFixed(2)), weight:w.need },
+          potential:    { value:+(p.toFixed(2)), weight:w.potential },
+          feasibility:  { value:+(f.toFixed(2)), weight:w.feasibility },
+          readiness:    { value:+(rd.toFixed(2)), weight:w.readiness },
+          data_quality: { value:+(dq.toFixed(2)), weight:w.data }
+        };
+        const reasonList = [ ...rU, ...rA, ...rN, ...rP, ...rF, ...rRD, ...rDQ ];
+        const score_breakdown = reasonList.join(" • ");
+
+        const tags = [];
+        if (kind==="pv" && ctx.storage) tags.push("PV+Battery");
+        if (kind==="heatpump" && ctx.pvInterest) tags.push("HP+PV");
+        if (kind==="tenant" && ctx.units >= 12) tags.push("Large-Multiunit");
+        if (kind==="roof" && /leak|undicht|damage|beschädigt/.test(ctx.issues)) tags.push("Roof-Leak");
+
+        return { score: Math.round(clamp(score,0,100)), priority, confidence:+confidence.toFixed(2), score_breakdown, components, tags, risk_flags, next_action: decision.next_action, sla_minutes: decision.sla_minutes, routing: decision.routing };
+      };
+
+      // Back-compat shims
+      window.computeLeadScoreDetail = (product, q={}) => {
+        const r = window.computeLeadScoreDetailV4(product, q, {});
+        return { score:r.score, priority:r.priority, breakdown:r.score_breakdown };
+      };
+      window.computeLeadScore = (product, q={}) => window.computeLeadScoreDetailV4(product, q, {}).score;
+    })();
 
     /* ---------- Analytics ---------- */
     function enableGTM() {
@@ -199,38 +377,20 @@
       localStorage.setItem("consent_v1", JSON.stringify({ analytics: false, marketing: false, personalization: false }));
       document.getElementById("cookie-banner").style.display = "none";
     }
-    function openSettings() {
-      alert("Einstellungsseite ist noch in Entwicklung.");
-    }
+    function openSettings() { alert("Einstellungsseite ist noch in Entwicklung."); }
 
     /* ---------- Summary helpers (auto-hide kosong) ---------- */
     function buildLeadSummary(lang, productLabel, q = {}) {
       const L = {
-        de: {
-          product:"Produkt", city:"Ort", plz:"PLZ", type:"Gebäudetyp/Installation",
-          roofForm:"Dachform", area:"Dachfläche (m²)", orient:"Ausrichtung", pitch:"Neigungswinkel (°)",
-          shade:"Verschattung", cons:"Jahresverbrauch (kWh)", battery:"Batteriespeicher",
-          timeline:"Zeitrahmen", contact:"Kontaktzeit", address:"Adresse", yes:"Ja", no:"Nein"
-        },
-        en: {
-          product:"Product", city:"City", plz:"ZIP", type:"Property/Installation",
-          roofForm:"Roof form", area:"Roof area (m²)", orient:"Orientation", pitch:"Pitch (°)",
-          shade:"Shading", cons:"Annual usage (kWh)", battery:"Battery storage",
-          timeline:"Timeline", contact:"Best time", address:"Address", yes:"Yes", no:"No"
-        }
+        de: { product:"Produkt", city:"Ort", plz:"PLZ", type:"Gebäudetyp/Installation", roofForm:"Dachform", area:"Dachfläche (m²)", orient:"Ausrichtung", pitch:"Neigungswinkel (°)", shade:"Verschattung", cons:"Jahresverbrauch (kWh)", battery:"Batteriespeicher", timeline:"Zeitrahmen", contact:"Kontaktzeit", address:"Adresse", yes:"Ja", no:"Nein" },
+        en: { product:"Product", city:"City", plz:"ZIP", type:"Property/Installation", roofForm:"Roof form", area:"Roof area (m²)", orient:"Orientation", pitch:"Pitch (°)", shade:"Shading", cons:"Annual usage (kWh)", battery:"Battery storage", timeline:"Timeline", contact:"Best time", address:"Address", yes:"Yes", no:"No" }
       }[lang||'de'];
-
       const has = v => v!==undefined && v!==null && String(v).trim()!=="" && String(v).trim()!=="-";
-      const pick = (...keys) => {
-        for (const k of keys){ const v = q?.[k]; if (has(v)) return v; }
-        return null;
-      };
-
+      const pick = (...keys) => { for (const k of keys){ const v = q?.[k]; if (has(v)) return v; } return null; };
       const batteryRaw = pick("storage_interest","battery_jn");
       const batteryYesNo = has(batteryRaw)
         ? ((s=>{ s=(s+"").toLowerCase(); if(["ja","yes","true"].includes(s))return L.yes; if(["nein","no","false"].includes(s))return L.no; return batteryRaw; }) (batteryRaw))
         : null;
-
       const rows = [
         [L.product, productLabel || "-"],
         [L.city, pick("city","ort","town","stadt")],
@@ -247,7 +407,6 @@
         [L.contact, pick("contact_time_window","contact_window")],
         [L.address, pick("property_street_number","address","adresse")]
       ].filter(([,v]) => has(v));
-
       return rows.map(([k,v]) => `${k}: ${v}`).join(" • ");
     }
 
@@ -255,7 +414,6 @@
       const lang = getLang();
       const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
       const s = buildLeadSummary(lang, productLabel, qualification);
-
       const html = `
         <div class="summary-bubble">
           <ul>
@@ -267,37 +425,22 @@
       trackFE("summary_view", { product: mapProduct(productLabel) });
     }
 
-    // live-update PLZ/Address di summary terakhir (buat li jika belum ada)
     function updateSummaryField(lang, key, value){
       try{
-        const LABEL = (lang==="en")
-          ? { plz:"ZIP", address:"Address" }
-          : { plz:"PLZ", address:"Adresse" };
+        const LABEL = (lang==="en") ? { plz:"ZIP", address:"Address" } : { plz:"PLZ", address:"Adresse" };
         const bubble = [...document.querySelectorAll(".summary-bubble")].slice(-1)[0];
         if (!bubble) return;
         const ul = bubble.querySelector("ul"); if (!ul) return;
-
         const label = LABEL[key];
-        let li = [...ul.querySelectorAll("li")]
-          .find(node => node.textContent.trim().startsWith(label + ":"));
-
+        let li = [...ul.querySelectorAll("li")].find(node => node.textContent.trim().startsWith(label + ":"));
         const text = `${label}: ${value && String(value).trim() ? value : "-"}`;
-
-        if (li) {
-          li.textContent = text;
-        } else {
-          const newLi = document.createElement("li");
-          newLi.textContent = text;
-          ul.appendChild(newLi);
-        }
-      }catch(_){}
-    }
+        if (li) { li.textContent = text; } else { const newLi = document.createElement("li"); newLi.textContent = text; ul.appendChild(newLi); }
+      }catch(_){}}
 
     /* ---------- Google Sheets logging ---------- */
     function logLeadToGoogleSheet(payload){
       if (!GS_WEBHOOK_URL) return;
       const data = JSON.stringify({ secret: GS_WEBHOOK_SECRET, data: payload });
-
       try {
         if (navigator.sendBeacon) {
           const blob = new Blob([data], { type: "text/plain;charset=utf-8" });
@@ -305,14 +448,8 @@
           return;
         }
       } catch (_) {}
-
       try {
-        fetch(GS_WEBHOOK_URL, {
-          method: "POST",
-          mode: "no-cors",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: data
-        });
+        fetch(GS_WEBHOOK_URL, { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: data });
       } catch(_) {}
     }
 
@@ -320,40 +457,38 @@
     async function sendLeadToBackend({productLabel, name, address, email, phone, origin, qualification}) {
       const lang = getLang();
       const product = mapProduct(productLabel);
-      const q = qualification && typeof qualification === "object"
-        ? qualification
-        : { origin: origin || "form", product_label: productLabel };
+      const q = (qualification && typeof qualification === "object") ? qualification : { origin: origin || "form", product_label: productLabel };
 
-      const score = computeLeadScore(product, q);
+      // SCORING v4
+      const detail = computeLeadScoreDetailV4(product, q, { name, email, phone, address });
+      const { score, priority, confidence, score_breakdown, components, tags, risk_flags, next_action, sla_minutes, routing } = detail;
+
       const summary = buildLeadSummary(lang, productLabel, q);
-
       const payload = {
         source: "Website Funnel",
         product,
         qualification: q,
         contact: { name, address, email, phone, consent: true },
-        score,
-        disqualified: false,
+        score, priority, confidence,
+        score_breakdown,
+        score_components: components,
+        tags, risk_flags,
+        next_action, sla_minutes, routing,
         summary,
         notes: origin ? `Submitted via ${origin}` : "Submitted via chat funnel form",
         meta: { lang, session_id: sessionId(), variant: (localStorage.getItem("ab_variant") || "A") }
       };
 
-      trackFE("contact_submit", { product, origin: origin||"unknown" });
+      trackFE("contact_submit", { product, origin: origin||"unknown", priority, score });
       logLeadToGoogleSheet(payload);
 
-      const res = await fetch(_api("/lead"), {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify(payload)
-      });
+      const res = await fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error("Lead push failed");
       return res.json();
     }
 
     /* ---------- Mini contact form in chat (PLZ & live update) ---------- */
     let isSubmittingLead = false;
-
     function injectLeadContactFormChat(productLabel, qualification) {
       const lang = getLang();
       const log = document.getElementById("chatbot-log");
@@ -371,9 +506,7 @@
           <input type="tel"   id="c_phone" placeholder="${lang==="de"?"Telefonnummer":"Phone number"}" required style="width:100%;margin:4px 0;">
           <label style="display:flex;gap:.5rem;align-items:center;margin:6px 0;">
             <input type="checkbox" id="c_consent" required checked>
-            <span>${lang==="de"
-              ? 'Ich stimme der Kontaktaufnahme und Verarbeitung meiner Daten gemäß <a href="https://planville.de/datenschutz/" target="_blank">Datenschutzerklärung</a> zu.'
-              : 'I agree to be contacted and for my data to be processed according to the <a href="https://planville.de/datenschutz/" target="_blank">privacy policy</a>.'}
+            <span>${lang==="de" ? 'Ich stimme der Kontaktaufnahme und Verarbeitung meiner Daten gemäß <a href="https://planville.de/datenschutz/" target="_blank">Datenschutzerklärung</a> zu.' : 'I agree to be contacted and for my data to be processed according to the <a href="https://planville.de/datenschutz/" target="_blank">privacy policy</a>.'}
             </span>
           </label>
           <button type="submit" class="cta-button" style="margin-top:6px;">
@@ -387,93 +520,48 @@
       const f = wrap.querySelector("#lead-contact-form-chat");
       const elAddr = f.querySelector("#c_addr");
       const elPlz  = f.querySelector("#c_plz");
-
       try {
         const addr = qualification?.property_street_number ? String(qualification.property_street_number) : "";
         if (addr) elAddr.value = addr, updateSummaryField(lang, "address", addr);
         const plz = qualification?.plz ? String(qualification.plz) : "";
         if (plz) elPlz.value = plz, updateSummaryField(lang, "plz", plz);
       } catch(_) {}
-
-      elPlz.addEventListener("input", e=>{
-        const v = (e.target.value||"").trim();
-        if (qualification && typeof qualification === "object") qualification.plz = v;
-        updateSummaryField(lang, "plz", v);
-      });
-      elAddr.addEventListener("input", e=>{
-        const v = (e.target.value||"").trim();
-        if (qualification && typeof qualification === "object") qualification.property_street_number = v;
-        updateSummaryField(lang, "address", v);
-      });
+      elPlz.addEventListener("input", e=>{ const v=(e.target.value||"").trim(); if (qualification && typeof qualification === "object") qualification.plz = v; updateSummaryField(lang, "plz", v); });
+      elAddr.addEventListener("input", e=>{ const v=(e.target.value||"").trim(); if (qualification && typeof qualification === "object") qualification.property_street_number = v; updateSummaryField(lang, "address", v); });
 
       const btn  = f.querySelector('button[type="submit"]');
       f.addEventListener("submit", async (e)=>{
-        e.preventDefault();
-        if (isSubmittingLead) return;
-
+        e.preventDefault(); if (isSubmittingLead) return;
         const name  = f.querySelector("#c_name").value.trim();
         const addr  = elAddr.value.trim();
         const plz   = elPlz.value.trim();
         const email = f.querySelector("#c_email").value.trim();
         const phone = f.querySelector("#c_phone").value.trim();
         const ok    = f.querySelector("#c_consent").checked;
-
         if (!ok) { alert(lang==="de"?"Bitte Zustimmung erteilen.":"Please give consent."); return; }
         if (!validEmail(email)) { alert(lang==="de"?"Bitte eine gültige E-Mail-Adresse eintragen.":"Please enter a valid email."); return; }
-
-        try { if (qualification && typeof qualification === "object") qualification.plz = plz; } catch(_){}
-
-        isSubmittingLead = true;
-        const original = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = lang==="de" ? "Senden..." : "Sending...";
-
+        try { if (qualification && typeof qualification === "object") qualification.plz = plz; } catch(_) {}
+        isSubmittingLead = true; const original = btn.textContent; btn.disabled = true; btn.textContent = lang==="de" ? "Senden..." : "Sending...";
         try{
-          await sendLeadToBackend({
-            productLabel: productLabel || "Photovoltaik",
-            name, address: addr, email, phone,
-            origin: "chat-funnel",
-            qualification: qualification || {}
-          });
+          await sendLeadToBackend({ productLabel: productLabel || "Photovoltaik", name, address: addr, email, phone, origin: "chat-funnel", qualification: qualification || {} });
           appendMessage?.(lang==="de"?"Danke! Wir melden uns in Kürze.":"Thank you! We’ll contact you shortly.","bot");
-        }catch(err){
-          console.error(err);
-          appendMessage?.(lang==="de"?"Senden fehlgeschlagen. Bitte später erneut versuchen.":"Submission failed. Please try again later.","bot");
-        } finally {
-          btn.disabled = false;
-          btn.textContent = original;
-          isSubmittingLead = false;
-        }
+        }catch(err){ console.error(err); appendMessage?.(lang==="de"?"Senden fehlgeschlagen. Bitte später erneut versuchen.":"Submission failed. Please try again later.","bot"); }
+        finally { btn.disabled = false; btn.textContent = original; isSubmittingLead = false; }
       });
     }
 
-    /* ---------- Dipanggil saat user memilih timeline ---------- */
+    /* ---------- Timeline selected → show contact form ---------- */
     window.onTimelineSelected = function(timelineValue){
       const lang = getLang();
-
-      const productLabel = (window.Funnel?.state?.productLabel)
-        || (document.querySelector(".product-button.selected")?.textContent)
-        || "Photovoltaik";
-      const qualification = (window.Funnel?.state?.data)
-        ? { ...window.Funnel.state.data, timeline: timelineValue }
-        : { timeline: timelineValue, product_label: productLabel };
-
-      // 1) Pesan dulu
-      appendMessage?.(
-        lang==="de"
-          ? "Super, dann sind wir fast fertig. Bitte trage deine Kontaktdaten ein:"
-          : "Great, we’re almost done. Please enter your contact details:",
-        "bot"
-      );
-      // 2) Summary sesudah pesan
+      const productLabel = (window.Funnel?.state?.productLabel) || (document.querySelector(".product-button.selected")?.textContent) || "Photovoltaik";
+      const qualification = (window.Funnel?.state?.data) ? { ...window.Funnel.state.data, timeline: timelineValue } : { timeline: timelineValue, product_label: productLabel };
+      appendMessage?.( lang==="de"? "Super, dann sind wir fast fertig. Bitte trage deine Kontaktdaten ein:" : "Great, we’re almost done. Please enter your contact details:", "bot" );
       showSummaryFromFunnel(qualification);
-      // 3) Form
       injectLeadContactFormChat(productLabel, qualification);
-
       trackFE("contact_open", { product: mapProduct(productLabel), timeline: timelineValue });
     };
 
-    /* ---------- Kirim lead disqualified ---------- */
+    /* ---------- Disqualified lead push ---------- */
     window.sendDisqualifiedLead = function(reason){
       const lang = getLang();
       const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
@@ -485,28 +573,28 @@
         qualification: { ...qualification, disqualify_reason: reason || "gate_failed" },
         contact: { name:"-", address:"-", email:"no@email.invalid", phone:"-" },
         score: 0,
+        priority: "P0-BLOCK",
+        confidence: 1.0,
+        score_breakdown: "Disqualified by guardrail",
+        tags: ["DISQUALIFIED"],
+        risk_flags: ["guardrail_disqualify"],
+        next_action: "Do not contact (blocked)",
+        sla_minutes: null,
+        routing: "N/A",
         disqualified: true,
         summary,
         notes: "Auto-disqualify gate",
         meta: { lang, session_id: sessionId(), variant: (localStorage.getItem("ab_variant") || "A") }
       };
-      try {
-        logLeadToGoogleSheet(payload);
-        fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
-      } catch(_){}
+      try { logLeadToGoogleSheet(payload); fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) }); } catch(_){ }
       trackFE("disqualify", { product: payload.product, reason: payload.qualification.disqualify_reason });
     };
 
     /* ---------- Bootstrapping on load ---------- */
     window.onload = function () {
       const consent = localStorage.getItem("cookieConsent");
-      if (!consent) {
-        document.getElementById("cookie-banner").style.display = "block";
-      } else if (consent === "accepted") {
-        enableGTM();
-      }
-
-      // Initial greeting (pakai showProductOptions dari chatbot.js)
+      if (!consent) { document.getElementById("cookie-banner").style.display = "block"; }
+      else if (consent === "accepted") { enableGTM(); }
       setTimeout(() => {
         appendMessage?.("Hallo! 👋 Was kann ich für Sie tun?<br>Bitte wählen Sie ein Thema:", "bot");
         showProductOptions?.();
