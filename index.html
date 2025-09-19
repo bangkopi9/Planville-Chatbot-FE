@@ -91,12 +91,7 @@
     <div class="chatbot-header">
       <img src="planville-logo.png" alt="Planville Logo" class="chatbot-logo"/>
       <h1>Chat with Planville AI</h1>
-
-      <!-- Dark/Light switch -->
-      <label class="switch">
-        <input type="checkbox" id="modeToggle"/>
-        <span class="slider"></span>
-      </label>
+      <!-- (Dark/Light switch dihapus) -->
     </div>
 
     <div id="chatbot-log"></div>
@@ -131,7 +126,7 @@
   <script defer src="ai_guardrails_vlite.patched.js"></script>
   <script defer src="chatbot.js"></script>
 
-  <!-- 🧠 GA4 & Event/Lead helpers + Scoring v4 + bootstrapping -->
+  <!-- 🧠 GA4 & Event/Lead helpers + Scoring v4 (+ popup-only flow) -->
   <script>
     /* ---------- Consent & Analytics Gate ---------- */
     function getConsentState(){
@@ -410,7 +405,7 @@
         de: { product:"Produkt", city:"Ort", plz:"PLZ", type:"Gebäudetyp/Installation", roofForm:"Dachform", area:"Dachfläche (m²)", orient:"Ausrichtung", pitch:"Neigungswinkel (°)", shade:"Verschattung", cons:"Jahresverbrauch (kWh)", battery:"Batteriespeicher", timeline:"Zeitrahmen", contact:"Kontaktzeit", address:"Adresse", yes:"Ja", no:"Nein" },
         en: { product:"Product", city:"City", plz:"ZIP", type:"Property/Installation", roofForm:"Roof form", area:"Roof area (m²)", orient:"Orientation", pitch:"Pitch (°)", shade:"Shading", cons:"Annual usage (kWh)", battery:"Battery storage", timeline:"Timeline", contact:"Best time", address:"Address", yes:"Yes", no:"No" }
       }[lang||'de'];
-      const has = v => v!==undefined && v!==null && String(v).trim()!=="" && String(v).trim()!=="-";
+      const has = v => v!==undefined && v!==null && String(v).trim()!=="";
       const pick = (...keys) => { for (const k of keys){ const v = q?.[k]; if (has(v)) return v; } return null; };
       const batteryRaw = pick("storage_interest","battery_jn");
       const batteryYesNo = has(batteryRaw)
@@ -522,77 +517,25 @@
       return res.json();
     }
 
-    /* ---------- Mini contact form in chat (PLZ & live update) ---------- */
-    let isSubmittingLead = false;
-    function injectLeadContactFormChat(productLabel, qualification) {
-      const lang = getLang();
-      const log = document.getElementById("chatbot-log");
-      const wrap = document.createElement("div");
-      wrap.className = "chatbot-message bot-message";
-      wrap.innerHTML = `
-        <div style="margin-bottom:8px;font-weight:600;">
-          ${lang==="de" ? "Fast geschafft! Bitte Kontaktdaten ausfüllen:" : "Almost done! Please fill your contact details:"}
-        </div>
-        <form id="lead-contact-form-chat">
-          <input type="text" id="c_name"  placeholder="${lang==="de"?"Name":"Name"}" required style="width:100%;margin:4px 0;">
-          <input type="text" id="c_addr"  placeholder="${lang==="de"?"Adresse (Straße + Nr.)":"Address (Street + No.)"}" required style="width:100%;margin:4px 0;">
-          <input type="text" id="c_plz"   placeholder="${lang==="de"?"PLZ":"ZIP"}" required style="width:100%;margin:4px 0;">
-          <input type="email" id="c_email" placeholder="E-Mail" required style="width:100%;margin:4px 0;">
-          <input type="tel"   id="c_phone" placeholder="${lang==="de"?"Telefonnummer":"Phone number"}" required style="width:100%;margin:4px 0;">
-          <label style="display:flex;gap:.5rem;align-items:center;margin:6px 0;">
-            <input type="checkbox" id="c_consent" required checked>
-            <span>${lang==="de" ? 'Ich stimme der Kontaktaufnahme und Verarbeitung meiner Daten gemäß <a href="https://planville.de/datenschutz/" target="_blank">Datenschutzerklärung</a> zu.' : 'I agree to be contacted and for my data to be processed according to the <a href="https://planville.de/datenschutz/" target="_blank">privacy policy</a>.'}
-            </span>
-          </label>
-          <button type="submit" class="cta-button" style="margin-top:6px;">
-            ${lang==="de"?"Absenden":"Submit"}
-          </button>
-        </form>
-      `;
-      log.appendChild(wrap);
-
-      // Prefill + live-update summary (PLZ & Address)
-      const f = wrap.querySelector("#lead-contact-form-chat");
-      const elAddr = f.querySelector("#c_addr");
-      const elPlz  = f.querySelector("#c_plz");
-      try {
-        const addr = qualification?.property_street_number ? String(qualification.property_street_number) : "";
-        if (addr) elAddr.value = addr, updateSummaryField(lang, "address", addr);
-        const plz = qualification?.plz ? String(qualification.plz) : "";
-        if (plz) elPlz.value = plz, updateSummaryField(lang, "plz", plz);
-      } catch(_) {}
-      elPlz.addEventListener("input", e=>{ const v=(e.target.value||"").trim(); if (qualification && typeof qualification === "object") qualification.plz = v; updateSummaryField(lang, "plz", v); });
-      elAddr.addEventListener("input", e=>{ const v=(e.target.value||"").trim(); if (qualification && typeof qualification === "object") qualification.property_street_number = v; updateSummaryField(lang, "address", v); });
-
-      const btn  = f.querySelector('button[type="submit"]');
-      f.addEventListener("submit", async (e)=>{
-        e.preventDefault(); if (isSubmittingLead) return;
-        const name  = f.querySelector("#c_name").value.trim();
-        const addr  = elAddr.value.trim();
-        const plz   = elPlz.value.trim();
-        const email = f.querySelector("#c_email").value.trim();
-        const phone = f.querySelector("#c_phone").value.trim();
-        const ok    = f.querySelector("#c_consent").checked;
-        if (!ok) { alert(lang==="de"?"Bitte Zustimmung erteilen.":"Please give consent."); return; }
-        if (!validEmail(email)) { alert(lang==="de"?"Bitte eine gültige E-Mail-Adresse eintragen.":"Please enter a valid email."); return; }
-        try { if (qualification && typeof qualification === "object") qualification.plz = plz; } catch(_) {}
-        isSubmittingLead = true; const original = btn.textContent; btn.disabled = true; btn.textContent = lang==="de" ? "Senden..." : "Sending...";
-        try{
-          await sendLeadToBackend({ productLabel: productLabel || "Photovoltaik", name, address: addr, email, phone, origin: "chat-funnel", qualification: qualification || {} });
-          appendMessage?.(lang==="de"?"Danke! Wir melden uns in Kürze.":"Thank you! We’ll contact you shortly.","bot");
-        }catch(err){ console.error(err); appendMessage?.(lang==="de"?"Senden fehlgeschlagen. Bitte später erneut versuchen.":"Submission failed. Please try again later.","bot"); }
-        finally { btn.disabled = false; btn.textContent = original; isSubmittingLead = false; }
-      });
-    }
-
-    /* ---------- Timeline selected → show contact form ---------- */
+    /* ---------- Timeline selected → SUMMARY + POPUP (no inline form) ---------- */
     window.onTimelineSelected = function(timelineValue){
       const lang = getLang();
-      const productLabel = (window.Funnel?.state?.productLabel) || (document.querySelector(".product-button.selected")?.textContent) || "Photovoltaik";
-      const qualification = (window.Funnel?.state?.data) ? { ...window.Funnel.state.data, timeline: timelineValue } : { timeline: timelineValue, product_label: productLabel };
-      appendMessage?.( lang==="de"? "Super, dann sind wir fast fertig. Bitte trage deine Kontaktdaten ein:" : "Great, we’re almost done. Please enter your contact details:", "bot" );
+      const productLabel = (window.Funnel?.state?.productLabel)
+        || (document.querySelector(".product-button.selected")?.textContent)
+        || "Photovoltaik";
+      const qualification = (window.Funnel?.state?.data)
+        ? { ...window.Funnel.state.data, timeline: timelineValue }
+        : { timeline: timelineValue, product_label: productLabel };
+
+      appendMessage?.(
+        lang==="de"
+          ? "Super, dann sind wir fast fertig. Bitte trage deine Kontaktdaten ein:"
+          : "Great, we’re almost done. Please enter your contact details:",
+        "bot"
+      );
       showSummaryFromFunnel(qualification);
-      injectLeadContactFormChat(productLabel, qualification);
+      // langsung buka modal popup (universal)
+      openLeadForm(productLabel, qualification);
       trackFE("contact_open", { product: mapProduct(productLabel), timeline: timelineValue });
     };
 
@@ -630,20 +573,16 @@
           funnel_id, funnel_version, funnel_trace
         }
       };
-      try { logLeadToGoogleSheet(payload); fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) }); } catch(_){ }
+      try {
+        logLeadToGoogleSheet(payload);
+        fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+      } catch(_){ }
       trackFE("disqualify", { product: payload.product, reason: payload.qualification.disqualify_reason });
     };
 
     /* ---------- Bootstrapping on load ---------- */
-    window.onload = function () {
-      const consent = localStorage.getItem("cookieConsent");
-      if (!consent) { document.getElementById("cookie-banner").style.display = "block"; }
-      else if (consent === "accepted") { enableGTM(); }
-      setTimeout(() => {
-        appendMessage?.("Hallo! 👋 Was kann ich für Sie tun?<br>Bitte wählen Sie ein Thema:", "bot");
-        showProductOptions?.();
-      }, 800);
-    };
+    // (Dihapus agar tidak dobel; greeting & products di-handle oleh chatbot.js)
+    // Cookie banner & GTM dihandle juga di chatbot.js saat load.
   </script>
 </body>
 </html>
