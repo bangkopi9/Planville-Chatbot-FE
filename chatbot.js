@@ -28,6 +28,51 @@ function _api(path = "") {
   const p = String(path || "");
   return base + (p.startsWith("/") ? p : "/" + p);
 }
+
+// --- STREAMING UTIL (chunked fetch) ---
+async function askAIStream({ question, lang, signal, onDelta, onDone }) {
+  const res = await fetch(_api("/chat/stream"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: question, lang }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`Stream ${res.status}`);
+  if (!res.body || !res.body.getReader) {
+    // Fallback jika browser/edge proxy tak mendukung ReadableStream
+    const txt = await res.text();
+    onDelta?.(txt, txt);
+    onDone?.(txt);
+    return txt;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let full = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    if (!chunk) continue;
+    full += chunk;
+    onDelta?.(chunk, full);
+  }
+  onDone?.(full);
+  return full;
+}
+
+// retry sederhana utk 429/5xx
+async function withRetry(fn, { retries = 1, baseDelay = 600 } = {}) {
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      lastErr = e;
+      await new Promise(r => setTimeout(r, baseDelay * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 function _getConsentState() {
   try {
     const raw = localStorage.getItem("consent_v1");
@@ -346,7 +391,7 @@ if (langSwitcher) {
 }
 
 // ========================
-// 📨 Form Submit Handler  (→ AIGuard.ask)
+// 📨 Form Submit Handler  (→ streaming /chat/stream, fallback ke /chat)
 // ========================
 if (form) {
   form.addEventListener("submit", async (e) => {
@@ -380,22 +425,73 @@ if (form) {
       return;
     }
 
-    try {
-      let finalReply = null;
+    // --- mulai alur AI ---
+    let finalReply = null;
 
+    // siapkan gelembung bot kosong utk live-stream
+    const botLive = appendMessage("...", "bot"); // nanti diisi per-chunk
+
+    try {
+      // 1) AIGuard (jika menginterupsi alur)
       if (window.AIGuard && typeof AIGuard.ask === "function") {
         const ai = await AIGuard.ask(question, selectedLang);
-
         if (ai && ai.stop) {
           if (typingBubble) typingBubble.style.display = "none";
+          if (botLive) botLive.firstChild && (botLive.firstChild.textContent = "");
           nudgeToFormFromInterrupt(selectedLang);
           __lastOrigin = "chat";
           return;
         }
-        finalReply = ai && ai.text ? ai.text : null;
+        if (ai && ai.text) {
+          finalReply = String(ai.text).trim();
+          if (typingBubble) typingBubble.style.display = "none";
+          if (botLive) {
+            const fb = botLive.querySelector(".feedback-btns");
+            botLive.innerHTML = finalReply;
+            if (fb) botLive.appendChild(fb);
+          }
+          saveToHistory("bot", finalReply);
+        }
       }
 
+      // 2) Kalau guard tidak jawab → STREAM dari backend
       if (!finalReply) {
+        const controller = new AbortController();
+        window.__chatAbortController = controller; // opsional: untuk tombol Stop
+
+        let gotFirstChunk = false;
+        await withRetry(
+          () =>
+            askAIStream({
+              question,
+              lang: selectedLang,
+              signal: controller.signal,
+              onDelta: (_chunk, acc) => {
+                if (!gotFirstChunk && typingBubble) {
+                  typingBubble.style.display = "none";
+                  gotFirstChunk = true;
+                }
+                if (botLive) {
+                  const fb = botLive.querySelector(".feedback-btns");
+                  botLive.innerHTML = acc;
+                  if (fb) botLive.appendChild(fb);
+                  chatLog.scrollTop = chatLog.scrollHeight;
+                }
+              },
+              onDone: (full) => {
+                finalReply =
+                  (full || "").trim() || I18N.unsure[selectedLang];
+              },
+            }),
+          { retries: 1 }
+        );
+
+        if (!gotFirstChunk && typingBubble) typingBubble.style.display = "none";
+        saveToHistory("bot", finalReply);
+      }
+    } catch (err) {
+      // 3) Fallback terakhir → non-stream /chat
+      try {
         const res = await fetch(_api("/chat"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -403,14 +499,31 @@ if (form) {
         });
         const data = await res.json();
         const replyRaw = data.answer ?? data.reply;
-        const reply = typeof replyRaw === "string" ? replyRaw.trim() : "";
-        finalReply = reply || I18N.unsure[selectedLang];
+        finalReply =
+          (typeof replyRaw === "string" ? replyRaw.trim() : "") ||
+          I18N.unsure[selectedLang];
+
+        if (botLive) {
+          const fb = botLive.querySelector(".feedback-btns");
+          botLive.innerHTML = finalReply;
+          if (fb) botLive.appendChild(fb);
+        } else {
+          appendMessage(finalReply, "bot");
+        }
+        saveToHistory("bot", finalReply);
+      } catch (_) {
+        if (botLive) {
+          const fb = botLive.querySelector(".feedback-btns");
+          botLive.innerHTML = "Error while connecting to the API.";
+          if (fb) botLive.appendChild(fb);
+        } else {
+          appendMessage("Error while connecting to the API.", "bot");
+        }
+      } finally {
+        if (typingBubble) typingBubble.style.display = "none";
       }
-
-      if (typingBubble) typingBubble.style.display = "none";
-      appendMessage(finalReply, "bot");
-      saveToHistory("bot", finalReply);
-
+    } finally {
+      // CTA / funnel follow-ups (tidak diubah)
       const inFunnel =
         !!(window.Funnel && window.Funnel.state && window.Funnel.state.product);
       const formAlreadyShown =
@@ -430,10 +543,6 @@ if (form) {
       ) {
         AIGuard.maybeContinueFunnel();
       }
-    } catch (err) {
-      if (typingBubble) typingBubble.style.display = "none";
-      appendMessage("Error while connecting to the API.", "bot");
-    } finally {
       __lastOrigin = "chat";
     }
   });
@@ -460,7 +569,7 @@ function updateHeaderOnly(lang) {
 // 💬 Append Message
 // ========================
 function appendMessage(msg, sender, scroll = true) {
-  if (!chatLog) return;
+  if (!chatLog) return null;
   const msgDiv = document.createElement("div");
   msgDiv.className = `chatbot-message ${sender}-message`;
   msgDiv.innerHTML = msg;
@@ -477,6 +586,7 @@ function appendMessage(msg, sender, scroll = true) {
 
   chatLog.appendChild(msgDiv);
   if (scroll) chatLog.scrollTop = chatLog.scrollHeight;
+  return msgDiv; // penting untuk live update
 }
 
 // ========================
