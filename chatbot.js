@@ -1,6 +1,8 @@
 // ========================
-// ✅ PLANVILLE CHATBOT – SAFE DROP-IN (2025-09-03)
-// - Mobile-only floating form (desktop inline)
+// ✅ PLANVILLE CHATBOT – SAFE DROP-IN (2025-09-19)
+// - Popup modal universal (desktop & mobile, auto-adjust)
+// - Tidak ada inline form (semua via modal)
+// - Tidak ada dark/light toggle (only light design handled via CSS)
 // - Single nudgeToFormFromInterrupt
 // - Full product funnels: pv, heatpump, aircon, roof, tenant, window
 // - Ensure <meta name="viewport">
@@ -39,7 +41,6 @@ async function askAIStream({ question, lang, signal, onDelta, onDone }) {
   });
   if (!res.ok) throw new Error(`Stream ${res.status}`);
   if (!res.body || !res.body.getReader) {
-    // Fallback jika browser/edge proxy tak mendukung ReadableStream
     const txt = await res.text();
     onDelta?.(txt, txt);
     onDone?.(txt);
@@ -155,7 +156,6 @@ const I18N = {
 
 // ====== i18n for questions/prompts ======
 const Q = {
-  // (legacy)
   owner_q: {
     de: "Bist du Eigentümer:in der Immobilie?",
     en: "Are you the owner of the property?",
@@ -263,7 +263,6 @@ const faqTexts = {
 const chatLog = document.getElementById("chatbot-log");
 const form = document.getElementById("chatbot-form");
 const input = document.getElementById("chatbot-input");
-const toggle = document.getElementById("modeToggle");
 const typingBubble = document.getElementById("typing-bubble");
 const langSwitcher = document.getElementById("langSwitcher");
 
@@ -289,23 +288,9 @@ function ensureViewportMeta() {
   }
 }
 
-// ============== Mobile-only form router ==============
-function isMobile() {
-  return (
-    window.matchMedia("(max-width: 768px)").matches ||
-    (window.matchMedia("(pointer:coarse)").matches &&
-      window.innerWidth <= 1024)
-  );
-}
-/** Always use this to open the lead form */
+/** Selalu gunakan modal popup universal */
 function openLeadForm(productLabel, qualification) {
   const lang = (langSwitcher && langSwitcher.value) || "de";
-  if (isMobile()) {
-    return openLeadFloatForm(productLabel, qualification, lang);
-  }
-  if (typeof window.injectLeadContactFormChat === "function") {
-    return window.injectLeadContactFormChat(productLabel, qualification);
-  }
   return openLeadFloatForm(productLabel, qualification, lang);
 }
 
@@ -319,7 +304,6 @@ window.addEventListener("load", () => {
     localStorage.getItem("selectedLang") || (CONFIG?.LANG_DEFAULT || "de");
   if (langSwitcher) langSwitcher.value = selectedLang;
 
-  // kill old left balloon (white area)
   const oldBalloon = document.querySelector(".pv-balloon");
   if (oldBalloon) oldBalloon.remove();
 
@@ -358,21 +342,6 @@ function showChatArea() {
   const container = document.querySelector(".chatbot-container");
   if (container) container.style.display = "flex";
   if (pvHero) pvHero.style.display = "none";
-}
-
-// ========================
-// 🌗 Mode Switcher
-// ========================
-if (toggle) {
-  toggle.addEventListener("change", () => {
-    document.body.classList.toggle("light-mode", toggle.checked);
-    document.body.style.background = toggle.checked
-      ? "var(--bg-light)"
-      : "var(--bg-dark)";
-    document.body.style.color = toggle.checked
-      ? "var(--text-light)"
-      : "var(--text-dark)";
-  });
 }
 
 // ========================
@@ -427,9 +396,7 @@ if (form) {
 
     // --- mulai alur AI ---
     let finalReply = null;
-
-    // siapkan gelembung bot kosong utk live-stream
-    const botLive = appendMessage("...", "bot"); // nanti diisi per-chunk
+    const botLive = appendMessage("...", "bot"); // wadah live-stream
 
     try {
       // 1) AIGuard (jika menginterupsi alur)
@@ -457,7 +424,7 @@ if (form) {
       // 2) Kalau guard tidak jawab → STREAM dari backend
       if (!finalReply) {
         const controller = new AbortController();
-        window.__chatAbortController = controller; // opsional: untuk tombol Stop
+        window.__chatAbortController = controller; // opsional: tombol Stop
 
         let gotFirstChunk = false;
         await withRetry(
@@ -523,11 +490,10 @@ if (form) {
         if (typingBubble) typingBubble.style.display = "none";
       }
     } finally {
-      // CTA / funnel follow-ups (tidak diubah)
+      // CTA / funnel follow-ups
       const inFunnel =
         !!(window.Funnel && window.Funnel.state && window.Funnel.state.product);
       const formAlreadyShown =
-        !!document.getElementById("lead-contact-form-chat") ||
         !!document.getElementById("lead-float-overlay");
 
       if (inFunnel) {
@@ -743,6 +709,7 @@ function detectIntent(text) {
     return true;
   }
 
+  // Interest intent → langsung buka modal (tidak ada inline form)
   if (lower.includes("tertarik") || lower.includes("interested")) {
     appendMessage(
       lang === "de"
@@ -750,60 +717,14 @@ function detectIntent(text) {
         : "Great! Please fill out this short form:",
       "bot"
     );
-    injectLeadMiniForm();
+    const label = window.Funnel?.state?.productLabel || "Beratung";
+    const qual = window.Funnel?.state?.data || {};
+    openLeadForm(label, qual);
     offerFAQFollowup(lang);
     return true;
   }
 
   return false;
-}
-
-// ========================
-// 🧾 Mini Lead Form (quick)
-// ========================
-function injectLeadMiniForm() {
-  const lang =
-    (langSwitcher && langSwitcher.value) || (CONFIG?.LANG_DEFAULT || "de");
-  const container = document.createElement("div");
-  container.className = "chatbot-message bot-message";
-  container.innerHTML = `
-    <form id="lead-mini-form">
-      <label>👤 ${lang === "de" ? "Name" : "Name"}:</label><br>
-      <input type="text" id="leadName" required style="margin-bottom:6px; width:100%;" /><br>
-      <label>📧 ${lang === "de" ? "E-Mail" : "Email"}:</label><br>
-      <input type="email" id="leadEmail" required style="margin-bottom:6px; width:100%;" /><br>
-      <button type="submit" style="padding:6px 14px; margin-top:4px;">
-        ${lang === "de" ? "Absenden" : "Submit"}
-      </button>
-    </form>
-  `;
-  if (chatLog) chatLog.appendChild(container);
-
-  const formEl = document.getElementById("lead-mini-form");
-  if (!formEl) return;
-
-  formEl.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const name = (document.getElementById("leadName").value || "").trim();
-    const email = (document.getElementById("leadEmail").value || "").trim();
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      alert(
-        lang === "de"
-          ? "Bitte geben Sie eine gültige E-Mail-Adresse ein."
-          : "Please enter a valid email address."
-      );
-      return;
-    }
-
-    appendMessage(
-      lang === "de"
-        ? `Vielen Dank ${name}! Unser Team wird Sie bald unter ${email} kontaktieren 🙌`
-        : `Thank you ${name}! Our team will contact you soon at ${email} 🙌`,
-      "bot"
-    );
-    track("mini_form_submit", { email });
-  });
 }
 
 // ========================
@@ -1475,7 +1396,7 @@ function askNextWindow() {
     const opts = (lang === "de" ? ["1–3", "4–7", "8+"] : ["1–3", "4–7", "8+"]).map((t) => ({
       label: t,
       value: t.replace(/\s/g, ""),
-    }));
+    })));
     return askCards(
       lang === "de" ? "Wie viele Fenster?" : "How many windows?",
       opts,
@@ -1553,11 +1474,7 @@ function askNextWindow() {
 // ========================
 function nudgeToFormFromInterrupt(lang) {
   try {
-    if (
-      document.getElementById("lead-contact-form-chat") ||
-      document.getElementById("lead-float-overlay")
-    )
-      return;
+    if (document.getElementById("lead-float-overlay")) return;
 
     const productLabel = window.Funnel?.state?.productLabel || "Photovoltaik";
     const qualification = window.Funnel?.state?.data || {};
@@ -1642,7 +1559,7 @@ function removeInlineOptions() {
 }
 
 // ========================
-// 🧊 Floating Form (modal) – mobile bottom-sheet
+// 🧊 Popup Lead Form (modal, centered for all devices)
 // ========================
 function openLeadFloatForm(productLabel, qualification, lang) {
   if (document.getElementById("lead-float-overlay")) return;
@@ -1652,7 +1569,7 @@ function openLeadFloatForm(productLabel, qualification, lang) {
   ov.innerHTML = `
     <style>
       #lead-float-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999}
-      #lead-float{position:relative;background:#fff;color:#111;max-width:520px;width:92%;border-radius:16px;padding:18px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+      #lead-float{position:relative;background:#fff;color:#111;max-width:min(520px,95vw);width:92%;border-radius:16px;padding:18px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
       #lead-float h3{margin:0 0 10px 0;font-size:18px}
       #lead-float form{display:grid;gap:10px}
       #lead-float input, #lead-float select{
@@ -1662,19 +1579,8 @@ function openLeadFloatForm(productLabel, qualification, lang) {
       #lead-float .cta{padding:12px 16px;border-radius:12px;border:none;background:#0f766e;color:#fff;cursor:pointer}
       #lead-float .ghost{padding:12px 16px;border-radius:12px;border:1px solid #ddd;background:#fafafa;cursor:pointer}
       #lf_close{position:absolute;right:10px;top:10px;background:transparent;border:none;font-size:22px;line-height:1;cursor:pointer}
-
-      /* Mobile bottom sheet */
-      @media (max-width:768px){
-        #lead-float-overlay{align-items:flex-end}
-        #lead-float{
-          width:100vw;max-width:100vw;border-radius:16px 16px 0 0;padding:18px 16px;
-          box-shadow:0 -8px 30px rgba(0,0,0,.35);
-          max-height:92vh;overflow-y:auto;
-          padding-bottom:calc(env(safe-area-inset-bottom,0px) + 18px);
-        }
-      }
     </style>
-    <div id="lead-float" role="dialog" aria-modal="true">
+    <div id="lead-float" role="dialog" aria-modal="true" aria-label="Lead form">
       <button type="button" id="lf_close" aria-label="Close">×</button>
       <h3>${lang==="de"?"Kurzes Formular":"Quick form"}</h3>
       <form id="lead-float-form">
@@ -1772,23 +1678,46 @@ function openLeadFloatForm(productLabel, qualification, lang) {
           qualification: qual,
         });
       }
-      appendMessage(
-        lang === "de"
-          ? "Danke! Wir melden uns in Kürze."
-          : "Thank you! We’ll contact you shortly.",
-        "bot"
-      );
+      close(); // tutup form dulu
+      showThanksModal(lang);
     } catch (err) {
       console.error(err);
-      appendMessage(
-        lang === "de"
-          ? "Senden fehlgeschlagen. Bitte später erneut versuchen."
-          : "Submission failed. Please try again later.",
-        "bot"
-      );
-    } finally {
       close();
+      showThanksModal(lang, /*error*/ true);
     }
+  });
+}
+
+// ========================
+// 🙏 Thank-you Modal
+// ========================
+function showThanksModal(lang, isError) {
+  if (document.getElementById("lead-thanks-overlay")) return;
+  const tov = document.createElement("div");
+  tov.id = "lead-thanks-overlay";
+  tov.innerHTML = `
+    <style>
+      #lead-thanks-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:10000}
+      #lead-thanks{background:#fff;color:#111;max-width:min(520px,95vw);border-radius:16px;padding:24px;box-shadow:0 10px 30px rgba(0,0,0,.35);text-align:center}
+      #lead-thanks h3{margin:0 0 8px 0;font-size:20px}
+      #lead-thanks p{margin:0 0 12px 0;line-height:1.5}
+      #lead-thanks .cta{padding:10px 16px;border-radius:12px;border:none;background:#0f766e;color:#fff;cursor:pointer}
+    </style>
+    <div id="lead-thanks" role="dialog" aria-modal="true" aria-label="${isError ? "Error" : "Thank you"}">
+      <h3>${isError
+        ? (lang==="de" ? "Senden fehlgeschlagen" : "Submission failed")
+        : (lang==="de" ? "Danke!" : "Thank you!")}</h3>
+      <p>${isError
+        ? (lang==="de" ? "Bitte später erneut versuchen." : "Please try again later.")
+        : (lang==="de" ? "Wir melden uns in Kürze." : "We’ll contact you shortly.")}</p>
+      <button class="cta" id="thanks_ok">${lang==="de"?"Schließen":"Close"}</button>
+    </div>`;
+  document.body.appendChild(tov);
+  const cls = () => { try { document.body.removeChild(tov);} catch(_){} };
+  document.getElementById("thanks_ok").addEventListener("click", cls);
+  tov.addEventListener("click", (e)=>{ if(e.target===tov) cls(); });
+  document.addEventListener("keydown", function esc(e){
+    if(e.key==="Escape"){ cls(); document.removeEventListener("keydown", esc); }
   });
 }
 
