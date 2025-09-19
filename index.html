@@ -580,9 +580,10 @@
       trackFE("disqualify", { product: payload.product, reason: payload.qualification.disqualify_reason });
     };
 
-    /* ---------- Bootstrapping on load ---------- */
-    // (Dihapus agar tidak dobel; greeting & products di-handle oleh chatbot.js)
-    // Cookie banner & GTM dihandle juga di chatbot.js saat load.
+    /* ---------- Bootstrapping on load ----------
+       Greeting + product chips diinisiasi di chatbot.js (window.load).
+       Cookie banner: tampil otomatis via CSS + tombol di atas.
+    */
   </script>
 </body>
 </html>
