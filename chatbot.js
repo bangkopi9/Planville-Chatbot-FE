@@ -1,6 +1,6 @@
 <script>
 /* === PLANVILLE CHATBOT — LIGHT-ONLY (2025-09-23, full update) ===
-   - Fast streaming (NDJSON) with watchdog heartbeat + auto-retry (anti "connection lost")
+   - Fast streaming (NDJSON) + watchdog heartbeat + auto-retry
    - No in-widget cookie banner / no 👍👎
    - Universal popup modal (desktop & mobile)
    - Funnels: pv, heatpump, aircon, roof, tenant, window
@@ -33,13 +33,10 @@
      Streaming util (NDJSON)
   ----------------------------*/
   let __currentController = null;
-  let __currentEventSource = null;
 
   function abortCurrentStream(){
     try { __currentController?.abort(); } catch {}
-    try { __currentEventSource?.close?.(); } catch {}
     __currentController = null;
-    __currentEventSource = null;
   }
 
   // askAIStream({ question, lang, signal, onDelta, onDone })
@@ -318,12 +315,6 @@
       m.content = "width=device-width, initial-scale=1, viewport-fit=cover";
       document.head.appendChild(m);
     }
-  }
-  function isMobile(){
-    return (
-      window.matchMedia("(max-width: 768px)").matches ||
-      (window.matchMedia("(pointer:coarse)").matches && window.innerWidth <= 1024)
-    );
   }
   function openLeadForm(productLabel, qualification){
     const lang = (langSwitcher && langSwitcher.value) || "de";
@@ -1135,6 +1126,7 @@
   #lead-float{width:100vw;max-width:100vw;border-radius:16px 16px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.35);max-height:92vh;overflow-y:auto;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 18px)}
 }
 </style>
+
 <div id="lead-float" role="dialog" aria-modal="true">
   <button type="button" id="lf_close" aria-label="Close">×</button>
   <h3>${lang==="de"?"Kurzes Formular":"Quick form"}</h3>
@@ -1162,9 +1154,11 @@
 </div>`;
     document.body.appendChild(ov);
 
+    // lock scroll while modal open
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
+    // prefill from qualification
     try{
       if (qualification && qualification.property_street_number){
         ov.querySelector("#lf_addr").value = String(qualification.property_street_number);
@@ -1245,5 +1239,6 @@
   // A/B variant sticky
   const AB = { variant: localStorage.getItem("ab_variant") || (Math.random() < 0.5 ? "A":"B") };
   localStorage.setItem("ab_variant", AB.variant);
-})();
+
+})(); 
 </script>
