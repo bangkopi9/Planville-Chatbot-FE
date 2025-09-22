@@ -1,10 +1,12 @@
+<script>
 /**
- * ai_guardrails_vlite.patched.js (final, 2025-09-22)
+ * ai_guardrails_vlite.patched.js (final, 2025-09-23)
  * - Rewrite request relatif → CONFIG.BASE_API_URL (ALLOW/DENY aware)
- * - Menangani path "/chat" & "chat"
- * - Clone Request aman (tanpa konsumsi body)
- * - Patch EventSource (SSE)
- * - Auto-load ai_guardrails_vlite.js setelah patch (sync order)
+ * - Menangani path "/chat" & "chat" (match grup 'ai|chat|lead|track' by default)
+ * - Clone Request aman (tanpa konsumsi body) via req.clone()
+ * - Patch fetch, EventSource (SSE), XMLHttpRequest, navigator.sendBeacon
+ * - Idempotent (multi-include safe) + debug toggle via CONFIG.API_REWRITE_DEBUG
+ * - Auto-load ai_guardrails_vlite.js setelah patch (sync order dipertahankan)
  */
 
 (function () {
@@ -46,6 +48,7 @@
 
   // ---------- Idempotent guard ----------
   if (window.__pv_fetch_patched__) {
+    // Sudah dipatch? tetap pastikan file utama diload setelahnya.
     try {
       var s1 = document.createElement("script");
       s1.src = "ai_guardrails_vlite.js";
@@ -100,34 +103,58 @@
     } catch (_) { return false; }
   }
 
+  if (DBG) {
+    try {
+      console.groupCollapsed("%c[guardrails] patched v2025-09-23", "color:#0b8; font-weight:700");
+      console.log("BASE_API_URL:", _baseURL());
+      console.log("ALLOW:", ALLOW);
+      console.log("DENY :", DENY);
+      console.groupEnd();
+    } catch(_) {}
+  }
+
   // ---------- Patch fetch ----------
   var _origFetch = window.fetch ? window.fetch.bind(window) : null;
 
   function cloneLikeRequest(absUrl, req, init) {
-    if (req && typeof req === "object" && typeof req.url === "string") {
-      try {
-        var opts = {
-          method: req.method || (init && init.method) || "GET",
-          headers: req.headers || (init && init.headers),
-          body: (typeof req.body !== "undefined" ? req.body : (init && init.body)),
-          mode: req.mode || (init && init.mode),
-          credentials: req.credentials || (init && init.credentials),
-          cache: req.cache || (init && init.cache),
-          redirect: req.redirect || (init && init.redirect),
-          referrer: req.referrer || (init && init.referrer),
-          referrerPolicy: req.referrerPolicy || (init && init.referrerPolicy),
-          integrity: req.integrity || (init && init.integrity),
-          keepalive: req.keepalive || (init && init.keepalive),
-          signal: req.signal || (init && init.signal)
-        };
-        return new Request(absUrl, opts);
-      } catch (_) {}
+    // Buat Request baru dengan URL sudah direwrite, tanpa konsumsi body:
+    // gunakan req.clone() agar stream body tetap utuh.
+    try {
+      var src = (req && typeof req.clone === "function") ? req.clone() : req;
+      var method = (init && init.method) || (src && src.method) || "GET";
+      var upper = String(method).toUpperCase();
+      var useBody = (init && typeof init.body !== "undefined")
+        ? init.body
+        : (!src ? undefined : (upper === "GET" || upper === "HEAD") ? undefined : src.body);
+
+      var headers = (init && init.headers)
+        ? init.headers
+        : (src && src.headers) ? new Headers(src.headers) : undefined;
+
+      var opts = {
+        method: method,
+        headers: headers,
+        body: useBody,
+        mode: (init && init.mode) || (src && src.mode),
+        credentials: (init && init.credentials) || (src && src.credentials),
+        cache: (init && init.cache) || (src && src.cache),
+        redirect: (init && init.redirect) || (src && src.redirect),
+        referrer: (init && init.referrer) || (src && src.referrer),
+        referrerPolicy: (init && init.referrerPolicy) || (src && src.referrerPolicy),
+        integrity: (init && init.integrity) || (src && src.integrity),
+        keepalive: (init && typeof init.keepalive !== "undefined") ? init.keepalive : (src && src.keepalive),
+        signal: (init && init.signal) || (src && src.signal)
+      };
+      return new Request(absUrl, opts);
+    } catch (_) {
+      // fallback ke string URL bila gagal cloning (edge cases)
+      return absUrl;
     }
-    return absUrl;
   }
 
   if (_origFetch) {
-    window.fetch = function (resource, init) {
+    var _ver = "v2025-09-23";
+    var patchedFetch = function (resource, init) {
       try {
         var url = null, isReq = false;
         if (typeof resource === "string") { url = resource; }
@@ -141,6 +168,8 @@
       } catch (_) {}
       return _origFetch(resource, init);
     };
+    patchedFetch.__pv_patch_ver__ = _ver;
+    window.fetch = patchedFetch;
   }
 
   // ---------- Patch EventSource (SSE) ----------
@@ -164,6 +193,44 @@
     }
   } catch (_) {}
 
+  // ---------- Patch XMLHttpRequest ----------
+  try {
+    var XHRp = XMLHttpRequest && XMLHttpRequest.prototype;
+    if (XHRp && !XHRp.__pv_patched__) {
+      var _origOpen = XHRp.open;
+      XHRp.open = function(method, url, async, user, password){
+        try{
+          if (typeof url === "string" && SHOULD_REWRITE(url)) {
+            var abs = _api(url);
+            if (DBG) console.debug("[guardrails] rewrite XHR:", url, "→", abs);
+            url = abs;
+          }
+        }catch(_){}
+        return _origOpen.call(this, method, url, async !== false, user, password);
+      };
+      XHRp.__pv_patched__ = true;
+    }
+  } catch(_) {}
+
+  // ---------- Patch navigator.sendBeacon ----------
+  try {
+    if (navigator && typeof navigator.sendBeacon === "function" && !navigator.sendBeacon.__pv_patched__) {
+      var _origBeacon = navigator.sendBeacon.bind(navigator);
+      var patchedBeacon = function(url, data){
+        try{
+          if (typeof url === "string" && SHOULD_REWRITE(url)) {
+            var abs = _api(url);
+            if (DBG) console.debug("[guardrails] rewrite beacon:", url, "→", abs);
+            url = abs;
+          }
+        }catch(_){}
+        return _origBeacon(url, data);
+      };
+      patchedBeacon.__pv_patched__ = true;
+      navigator.sendBeacon = patchedBeacon;
+    }
+  } catch(_) {}
+
   // ---------- Load original (after patch) ----------
   try {
     var s = document.createElement("script");
@@ -175,3 +242,4 @@
     else document.head.appendChild(s);
   } catch (_) {}
 })();
+</script>
