@@ -1,18 +1,16 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
-
   "rewrites": [
-    { "source": "/ai/(.*)",        "destination": "https://web-production-53b70.up.railway.app/ai/$1" },
-    { "source": "/chat",           "destination": "https://web-production-53b70.up.railway.app/chat" },
-    { "source": "/chat/(.*)",      "destination": "https://web-production-53b70.up.railway.app/chat/$1" },
-    { "source": "/lead",           "destination": "https://web-production-53b70.up.railway.app/lead" },
-    { "source": "/track",          "destination": "https://web-production-53b70.up.railway.app/track" },
-    { "source": "/funnel/(.*)",    "destination": "https://web-production-53b70.up.railway.app/funnel/$1" },
-    { "source": "/schedule/(.*)",  "destination": "https://web-production-53b70.up.railway.app/schedule/$1" },
-    { "source": "/healthz",        "destination": "https://web-production-53b70.up.railway.app/healthz" }
+    { "source": "/ai/(.*)",        "destination": "https://web-production-352d9.up.railway.app/ai/$1" },
+    { "source": "/chat",           "destination": "https://web-production-352d9.up.railway.app/chat" },
+    { "source": "/chat/(.*)",      "destination": "https://web-production-352d9.up.railway.app/chat/$1" },
+    { "source": "/lead",           "destination": "https://web-production-352d9.up.railway.app/lead" },
+    { "source": "/track",          "destination": "https://web-production-352d9.up.railway.app/track" },
+    { "source": "/funnel/(.*)",    "destination": "https://web-production-352d9.up.railway.app/funnel/$1" },
+    { "source": "/schedule/(.*)",  "destination": "https://web-production-352d9.up.railway.app/schedule/$1" },
+    { "source": "/healthz",        "destination": "https://web-production-352d9.up.railway.app/healthz" }
   ],
-
   "headers": [
     {
       "source": "/(.*)",
@@ -51,7 +49,6 @@
       ]
     }
   ],
-
   "redirects": [
     { "source": "/health", "destination": "/healthz", "permanent": false }
   ]
