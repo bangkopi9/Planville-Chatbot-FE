@@ -11,88 +11,20 @@
   <!-- ===== PWA + Icons ===== -->
   <link rel="manifest" href="manifest.json"/>
   <link rel="icon" href="planville-logo.png" type="image/png"/>
-
-  <!-- ===== Network performance hints ===== -->
-  <!-- Preconnect/dns-prefetch ke API backend agar handshake lebih cepat -->
-  <link rel="preconnect" href="https://web-production-352d9.up.railway.app" crossorigin>
-  <link rel="dns-prefetch" href="https://web-production-352d9.up.railway.app">
-
   <!-- (Opsional) favicon svg khusus Wattson -->
   <!-- <link rel="icon" type="image/svg+xml" href="/assets/wattson.svg"> -->
 
-  <!-- ===== Global Config & Helpers ===== -->
-  <script>
-    // === CONFIG (tambahan flag performa & UI) ===
-    window.CONFIG = {
-      BASE_API_URL: "https://web-production-352d9.up.railway.app",
+  <!-- ===== Network performance hints ===== -->
+  <!-- Preconnect/dns-prefetch ke API backend agar handshake lebih cepat (match CONFIG.BASE_API_URL) -->
+  <link rel="preconnect" href="https://web-production-53b70.up.railway.app" crossorigin>
+  <link rel="dns-prefetch" href="https://web-production-53b70.up.railway.app">
+  <!-- (Opsional) GA4 preconnect (akan dipakai kalau consent OK) -->
+  <link rel="preconnect" href="https://www.googletagmanager.com">
+  <link rel="dns-prefetch" href="https://www.googletagmanager.com">
 
-      // Performa
-      STREAM_ABORT_ON_NEW_INPUT: true,
-      CHAT_VIRTUALIZE: true,
-
-      // UI features
-      CHATBOT_NAME: "Wattson",
-      CHATBOT_SHOW_COOKIE_BANNER: false, // cookie banner TIDAK tampil di dalam chatbot
-      UI_FEEDBACK_ENABLED: false         // matikan 👍👎
-    };
-
-    // _api helper (fallback, aman)
-    if (!window._api) {
-      window._api = function(path){
-        try{
-          const base = (window.CONFIG?.BASE_API_URL || "").replace(/\/+$/,"");
-          const p = String(path || "");
-          return base + (p.startsWith("/") ? p : "/" + p);
-        }catch(e){ return path; }
-      };
-    }
-
-    // Google Apps Script Webhook (punyamu sendiri, tetap dipakai)
-    const GS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxdmC7n29ylriM5eKct4uQx6_7rGrhF0UCRSXamS8xNqzmtBgh9SXgcP5V_-nH0oErv/exec";
-    const GS_WEBHOOK_SECRET = "PV_LEADS_WEBHOOK_SECRET_8e2c7f4fb2c3412cbbde2f3e9a0c7b51";
-
-    // Helpers kecil
-    function getLang(){ try { return document.getElementById("langSwitcher").value || "de"; } catch(_) { return "de"; } }
-    function sessionId(){
-      let s = localStorage.getItem("session_id");
-      if (!s){ s = Date.now()+"-"+Math.random().toString(36).slice(2); localStorage.setItem("session_id", s); }
-      return s;
-    }
-    function mapProduct(p){
-      const t = (p||"").toLowerCase();
-      if (t.includes("photo") || t.includes("pv")) return "pv";
-      if (t.includes("dach") || t.includes("roof")) return "roof";
-      if (t.includes("wärme") || t.includes("waerme") || t.includes("heat") || t.includes("wp")) return "heatpump";
-      if (t.includes("mieter") || t.includes("tenant")) return "tenant";
-      if (t.includes("klima") || t.includes("air con") || t.includes("aircon")) return "aircon";
-      if (t.includes("fenster") || t.includes("window")) return "window";
-      if (t.includes("speicher") || t.includes("battery")) return "pv";
-      return "pv";
-    }
-    function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e||"").trim()); }
-
-    // Meta funnel (aman jika belum ada)
-    function getFunnelMeta(){
-      try{
-        const st = window.Funnel?.state || {};
-        const id = st.id || st.funnelId || "default";
-        const version = st.version || st.funnelVersion || "v1";
-        const src = Array.isArray(st.trace) ? st.trace
-                  : Array.isArray(st.steps) ? st.steps
-                  : Array.isArray(st.log)   ? st.log
-                  : null;
-        const trace = src
-          ? src.map(s => ({
-              id:    s?.id ?? s?.key ?? "",
-              key:   s?.key ?? s?.id ?? "",
-              label: s?.label ?? s?.title ?? "",
-              value: s?.value ?? s?.answer ?? s?.selected ?? ""
-            }))
-          : null;
-        return { id, version, trace };
-      }catch(_){ return { id:"default", version:"v1", trace:null }; }
-    }
-  </script>
+  <!-- ===== Global Config (eksternal) ===== -->
+  <!-- Harus load lebih awal, karena guardrails & chatbot baca window.CONFIG -->
+  <script defer src="config.js"></script>
 
   <!-- ===== Hard kill-switch CSS (rating & cookie banner di dalam chatbot) ===== -->
   <style>
@@ -154,11 +86,13 @@
   </button>
 
   <!-- ❌ (Dihapus) Cookie Consent di DALAM chatbot
-       Cookie banner sebaiknya dikelola di level website/CMP, bukan di widget.
-       Jika kamu punya CMP global, biarkan dia yang mengatur. -->
+       Cookie banner sebaiknya dikelola di level website/CMP, bukan di widget. -->
 
-  <!-- ⚙️ AI guard (patched) + Chatbot core -->
+  <!-- ⚙️ AI guard (patched; akan auto-load ai_guardrails_vlite.js setelah patch) -->
+  <!-- urutan: config.js → patched guardrails → chatbot.js -->
   <script defer src="ai_guardrails_vlite.patched.js"></script>
+
+  <!-- 💬 Chatbot core (NDJSON + watchdog + auto-retry) -->
   <script defer src="chatbot.js"></script>
 
   <!-- 🧠 GA4 & Event/Lead helpers + Scoring v4 (+ popup-only flow) -->
@@ -177,7 +111,7 @@
     }
     function allowAnalytics(){ return !!getConsentState().analytics; }
 
-    // FE events (gated)
+    // FE events (gated) — dipakai chatbot via window.trackFE kalau ada
     function trackFE(eventName, props = {}, { essential = false } = {}) {
       if (!essential && !allowAnalytics()) return;
       try {
@@ -186,22 +120,30 @@
         window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
       } catch(_) {}
       try {
-        fetch(_api("/track"), {
+        const ep = (window.CONFIG && (window.CONFIG.TRACK_ENDPOINT || "/track")) || "/track";
+        fetch(window._api ? _api(ep) : ep, {
           method: "POST",
           headers: { "Content-Type":"application/json" },
-          body: JSON.stringify({ event: eventName, props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props) })
-        });
+          body: JSON.stringify({
+            event: eventName,
+            props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props)
+          })
+        }).catch(()=>{});
       } catch(_) {}
     }
+    window.trackFE = trackFE;
 
-    /* ---------- SCORING ENGINE v4 (tetap dari versi kamu) ---------- */
-    // (Konten scoring v4 mempertahankan yang sudah kamu pakai; aku tidak ubah di sini.)
+    /* ---------- SCORING ENGINE v4 (punyamu) ---------- */
+    // Pastikan computeLeadScoreDetailV4 tersedia di bundle-mu atau injected sebelum dipakai.
 
-    /* ---------- Analytics ---------- */
+    /* ---------- Analytics (enable jika consent OK) ---------- */
     function enableGTM() {
       if (!allowAnalytics()) return;
+      var GA_ID = (window.CONFIG && window.CONFIG.GTM_ID) || "";
+      if (!GA_ID) return;
+
       const s = document.createElement("script");
-      s.src = "https://www.googletagmanager.com/gtag/js?id=G-YL8ECJ5V17";
+      s.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(GA_ID);
       s.async = true;
       document.head.appendChild(s);
 
@@ -209,10 +151,54 @@
       function gtag(){ dataLayer.push(arguments); }
       window.gtag = gtag;
       gtag('js', new Date());
-      gtag('config', 'G-YL8ECJ5V17');
+      gtag('config', GA_ID);
     }
+    enableGTM();
 
     /* ---------- Summary helpers (auto-hide kosong) ---------- */
+    function getLang(){
+      try { return document.getElementById("langSwitcher").value || (window.CONFIG?.LANG_DEFAULT || "de"); }
+      catch(_) { return window.CONFIG?.LANG_DEFAULT || "de"; }
+    }
+    function mapProduct(p){
+      const t = (p||"").toLowerCase();
+      if (t.includes("photo") || t.includes("pv")) return "pv";
+      if (t.includes("dach") || t.includes("roof")) return "roof";
+      if (t.includes("wärme") || t.includes("waerme") || t.includes("heat") || t.includes("wp")) return "heatpump";
+      if (t.includes("mieter") || t.includes("tenant")) return "tenant";
+      if (t.includes("klima") || t.includes("air con") || t.includes("aircon")) return "aircon";
+      if (t.includes("fenster") || t.includes("window")) return "window";
+      if (t.includes("speicher") || t.includes("battery")) return "pv";
+      return "pv";
+    }
+    function sessionId(){
+      let s = localStorage.getItem("session_id");
+      if (!s){ s = Date.now()+"-"+Math.random().toString(36).slice(2); localStorage.setItem("session_id", s); }
+      return s;
+    }
+    function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e||"").trim()); }
+
+    function getFunnelMeta(){
+      try{
+        const st = window.Funnel?.state || {};
+        const id = st.id || st.funnelId || "default";
+        const version = st.version || st.funnelVersion || "v1";
+        const src = Array.isArray(st.trace) ? st.trace
+                  : Array.isArray(st.steps) ? st.steps
+                  : Array.isArray(st.log)   ? st.log
+                  : null;
+        const trace = src
+          ? src.map(s => ({
+              id:    s?.id ?? s?.key ?? "",
+              key:   s?.key ?? s?.id ?? "",
+              label: s?.label ?? s?.title ?? "",
+              value: s?.value ?? s?.answer ?? s?.selected ?? ""
+            }))
+          : null;
+        return { id, version, trace };
+      }catch(_){ return { id:"default", version:"v1", trace:null }; }
+    }
+
     function buildLeadSummary(lang, productLabel, q = {}) {
       const L = {
         de: { product:"Produkt", city:"Ort", plz:"PLZ", type:"Gebäudetyp/Installation", roofForm:"Dachform", area:"Dachfläche (m²)", orient:"Ausrichtung", pitch:"Neigungswinkel (°)", shade:"Verschattung", cons:"Jahresverbrauch (kWh)", battery:"Batteriespeicher", timeline:"Zeitrahmen", contact:"Kontaktzeit", address:"Adresse", yes:"Ja", no:"Nein" },
@@ -258,9 +244,10 @@
           </ul>
         </div>
       `;
-      appendMessage?.(html, "bot");
+      window.appendMessage?.(html, "bot");
       trackFE("summary_view", { product: mapProduct(productLabel) });
     }
+    window.showSummaryFromFunnel = showSummaryFromFunnel;
 
     function updateSummaryField(lang, key, value){
       try{
@@ -273,8 +260,11 @@
         const text = `${label}: ${value && String(value).trim() ? value : "-"}`;
         if (li) { li.textContent = text; } else { const newLi = document.createElement("li"); newLi.textContent = text; ul.appendChild(newLi); }
       }catch(_){}}
+    window.updateSummaryField = updateSummaryField;
 
-    /* ---------- Google Sheets logging ---------- */
+    /* ---------- Google Sheets logging (opsional; punyamu) ---------- */
+    const GS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxdmC7n29ylriM5eKct4uQx6_7rGrhF0UCRSXamS8xNqzmtBgh9SXgcP5V_-nH0oErv/exec";
+    const GS_WEBHOOK_SECRET = "PV_LEADS_WEBHOOK_SECRET_8e2c7f4fb2c3412cbbde2f3e9a0c7b51";
     function logLeadToGoogleSheet(payload){
       if (!GS_WEBHOOK_URL) return;
       const data = JSON.stringify({ secret: GS_WEBHOOK_SECRET, data: payload });
@@ -296,8 +286,10 @@
       const product = mapProduct(productLabel);
       const q = (qualification && typeof qualification === "object") ? qualification : { origin: origin || "form", product_label: productLabel };
 
-      // SCORING v4 (pakai engine yang sudah disisipkan di bundle kamu)
-      const detail = computeLeadScoreDetailV4(product, q, { name, email, phone, address });
+      // SCORING v4 (pakai engine yang sudah kamu bundle)
+      const detail = window.computeLeadScoreDetailV4
+        ? computeLeadScoreDetailV4(product, q, { name, email, phone, address })
+        : { score: 50, priority: "P2", confidence: 0.7, score_breakdown: "fallback", components: {}, tags: [], risk_flags: [], next_action: "Contact", sla_minutes: 120, routing: "default" };
       const { score, priority, confidence, score_breakdown, components, tags, risk_flags, next_action, sla_minutes, routing } = detail;
 
       // Meta funnel
@@ -308,7 +300,7 @@
         source: "Website Funnel",
         product,
         qualification: q,
-        contact: { name, address, email, phone, consent: true },
+        contact: { name, address, email: (validEmail(email)?email:"—"), phone, consent: true },
         score, priority, confidence,
         score_breakdown,
         score_components: components,
@@ -327,10 +319,16 @@
       trackFE("contact_submit", { product, origin: origin||"unknown", priority, score, confidence });
       logLeadToGoogleSheet(payload);
 
-      const res = await fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+      const ep = (window.CONFIG && (window.CONFIG.LEAD_ENDPOINT || "/lead")) || "/lead";
+      const res = await fetch(window._api ? _api(ep) : ep, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(payload)
+      });
       if (!res.ok) throw new Error("Lead push failed");
-      return res.json();
+      return res.json().catch(()=> ({}));
     }
+    window.sendLeadToBackend = sendLeadToBackend;
 
     /* ---------- Timeline selected → SUMMARY + POPUP ---------- */
     window.onTimelineSelected = function(timelineValue){
@@ -342,14 +340,17 @@
         ? { ...window.Funnel.state.data, timeline: timelineValue }
         : { timeline: timelineValue, product_label: productLabel };
 
-      appendMessage?.(
+      window.appendMessage?.(
         lang==="de"
           ? "Super, dann sind wir fast fertig. Bitte trage deine Kontaktdaten ein:"
           : "Great, we’re almost done. Please enter your contact details:",
         "bot"
       );
       showSummaryFromFunnel(qualification);
-      openLeadForm(productLabel, qualification); // popup universal
+      // popup universal (defined in chatbot.js)
+      if (typeof window.openLeadForm === "function") {
+        window.openLeadForm(productLabel, qualification);
+      }
       trackFE("contact_open", { product: mapProduct(productLabel), timeline: timelineValue });
     };
 
@@ -388,13 +389,21 @@
       };
       try {
         logLeadToGoogleSheet(payload);
-        fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+        const ep = (window.CONFIG && (window.CONFIG.LEAD_ENDPOINT || "/lead")) || "/lead";
+        fetch(window._api ? _api(ep) : ep, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
       } catch(_){ }
       trackFE("disqualify", { product: payload.product, reason: payload.qualification.disqualify_reason });
     };
 
     /* ---------- Boot UX ---------- */
     window.addEventListener("DOMContentLoaded", () => {
+      // Force A/B variant (opsional dari CONFIG)
+      try {
+        const f = window.CONFIG && window.CONFIG.AB_FORCE_VARIANT;
+        if (f === "A" || f === "B") localStorage.setItem("ab_variant", f);
+        else if (!localStorage.getItem("ab_variant")) localStorage.setItem("ab_variant", Math.random() < 0.5 ? "A" : "B");
+      } catch(_) {}
+
       // Set judul sesuai CONFIG.CHATBOT_NAME
       try {
         const t = document.getElementById("chatbotTitle");
@@ -414,5 +423,9 @@
       });
     });
   </script>
+
+  <noscript>
+    Bitte JavaScript aktivieren, um den Wattson-Chatbot zu benutzen.
+  </noscript>
 </body>
 </html>
