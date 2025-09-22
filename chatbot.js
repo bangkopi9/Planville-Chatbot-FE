@@ -1,20 +1,19 @@
-/* === PLANVILLE CHATBOT — LIGHT-ONLY DROP-IN (2025-09-19, fixed) ===
-   - Popup modal universal (desktop & mobile, auto-resize)
-   - Hapus inline form; hanya modal + mini form opsional (tetap pop-up)
-   - Hapus toggle dark/light (force light)
+/* === PLANVILLE CHATBOT — LIGHT-ONLY (2025-09-22) ===
+   - Streaming cepat (NDJSON) + abort on new input
+   - Tanpa cookie banner DI DALAM chatbot
+   - Tanpa rating 👍👎
+   - Popup modal universal (desktop & mobile)
    - Full product funnels: pv, heatpump, aircon, roof, tenant, window
-   - Satu sumber nudgeToFormFromInterrupt
    - Auto-greeting + FAQ + opsi produk
-   - Guardrails aman (kalau AIGuard tidak ada, di-skip)
-   - Sintaks diperiksa: tanpa trailing/comma atau kurung nyasar
+   - Guardrails aman (opsional)
 */
 
-/* ---------------------------
-   Helpers & Config
-----------------------------*/
 (function(){
   "use strict";
 
+  /* ---------------------------
+     Base URL & helpers
+  ----------------------------*/
   function _baseURL(){
     try{
       let b = (typeof CONFIG !== "undefined" && CONFIG.BASE_API_URL)
@@ -30,35 +29,99 @@
     return base + (p.startsWith("/") ? p : "/" + p);
   }
 
-  // streaming util
+  /* ---------------------------
+     Streaming util (NDJSON/SSE) — embedded
+  ----------------------------*/
+  let __currentController = null;
+  let __currentEventSource = null;
+
+  function abortCurrentStream(){
+    try { __currentController?.abort(); } catch {}
+    try { __currentEventSource?.close?.(); } catch {}
+    __currentController = null;
+    __currentEventSource = null;
+  }
+
+  // Back-compat signature: askAIStream({ question, lang, signal, onDelta, onDone })
   async function askAIStream({ question, lang, signal, onDelta, onDone }){
+    abortCurrentStream();
+
+    const controller = new AbortController();
+    __currentController = controller;
+    if (signal) {
+      if (signal.aborted) controller.abort();
+      else signal.addEventListener("abort", () => controller.abort(), { once:true });
+    }
+
     const res = await fetch(_api("/chat/stream"), {
       method:"POST",
       headers:{ "Content-Type":"application/json" },
       body: JSON.stringify({ message: question, lang }),
-      signal
+      signal: controller.signal,
+      keepalive: true
     });
+
     if (!res.ok) throw new Error("Stream " + res.status);
     if (!res.body || !res.body.getReader){
       const txt = await res.text();
-      if (onDelta) onDelta(txt, txt);
-      if (onDone) onDone(txt);
+      onDelta?.(txt, txt);
+      onDone?.(txt);
+      __currentController = null;
       return txt;
     }
+
     const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let full = "";
+    const decoder = new TextDecoder("utf-8");
+    let buf = "";
+    let acc = "";
+
     for(;;){
       const { value, done } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value, { stream:true });
-      if (!chunk) continue;
-      full += chunk;
-      if (onDelta) onDelta(chunk, full);
+      buf += decoder.decode(value, { stream:true });
+
+      // NDJSON flush per-baris; jika bukan NDJSON, tetap kirim sebagai teks apa adanya
+      let idx;
+      while ((idx = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (!line) continue;
+
+        let piece = "";
+        try {
+          const obj = JSON.parse(line);
+          piece = (obj.delta ?? obj.text ?? "");
+        } catch {
+          piece = line;
+        }
+        if (piece) {
+          acc += piece;
+          onDelta?.(piece, acc);
+        }
+      }
     }
-    if (onDone) onDone(full);
-    return full;
+
+    // tail
+    const tail = buf.trim();
+    if (tail) {
+      let piece = "";
+      try {
+        const obj = JSON.parse(tail);
+        piece = (obj.delta ?? obj.text ?? "");
+      } catch {
+        piece = tail;
+      }
+      if (piece) {
+        acc += piece;
+        onDelta?.(piece, acc);
+      }
+    }
+
+    onDone?.(acc);
+    __currentController = null;
+    return acc;
   }
+
   async function withRetry(fn, { retries=1, baseDelay=600 } = {}){
     let last;
     for (let i=0;i<=retries;i++){
@@ -197,7 +260,6 @@
       document.head.appendChild(m);
     }
   }
-
   function isMobile(){
     return (
       window.matchMedia("(max-width: 768px)").matches ||
@@ -225,13 +287,8 @@
     updateFAQ(selectedLang);
     updateHeaderOnly(selectedLang);
 
-    const consent = localStorage.getItem("cookieConsent");
-    if (!consent){
-      const banner = document.getElementById("cookie-banner");
-      if (banner) banner.style.display = "block";
-    } else if (consent === "accepted"){
-      if (typeof enableGTM === "function") enableGTM();
-    }
+    // ❌ Cookie banner DI DALAM chatbot dihapus (dikelola CMP global di luar widget)
+    // (blok sebelumnya yang memunculkan #cookie-banner dihapus)
 
     showChatArea();
     chatStarted = true;
@@ -268,7 +325,7 @@
     });
   }
 
-  // Submit handler (streaming)
+  // Submit handler (streaming cepat + abort)
   if (form){
     form.addEventListener("submit", async function(e){
       e.preventDefault();
@@ -279,7 +336,10 @@
       const selectedLang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
       if (!question) return;
 
-      appendMessage(question, "user");
+      // Abort stream sebelumnya bila ada
+      abortCurrentStream();
+
+      appendMessage(escapeHTML(question), "user");
       saveToHistory("user", question);
       input.value = "";
       if (typingBubble) typingBubble.style.display = "block";
@@ -311,9 +371,7 @@
             finalReply = String(ai.text).trim();
             if (typingBubble) typingBubble.style.display = "none";
             if (botLive){
-              const fb = botLive.querySelector(".feedback-btns");
               botLive.innerHTML = finalReply;
-              if (fb) botLive.appendChild(fb);
             }
             saveToHistory("bot", finalReply);
           }
@@ -328,12 +386,10 @@
             question,
             lang: selectedLang,
             signal: controller.signal,
-            onDelta: function(_chunk, acc){
+            onDelta: function(piece, acc){
               if (!gotFirst && typingBubble) { typingBubble.style.display = "none"; gotFirst = true; }
               if (botLive){
-                const fb = botLive.querySelector(".feedback-btns");
                 botLive.innerHTML = acc;
-                if (fb) botLive.appendChild(fb);
                 chatLog.scrollTop = chatLog.scrollHeight;
               }
             },
@@ -346,6 +402,7 @@
           saveToHistory("bot", finalReply);
         }
       }catch(err){
+        // Fallback non-stream endpoint
         try{
           const res = await fetch(_api("/chat"), {
             method:"POST",
@@ -356,18 +413,14 @@
           const replyRaw = data.answer !== undefined ? data.answer : data.reply;
           finalReply = (typeof replyRaw === "string" ? replyRaw.trim() : "") || I18N.unsure[selectedLang];
           if (botLive){
-            const fb = botLive.querySelector(".feedback-btns");
             botLive.innerHTML = finalReply;
-            if (fb) botLive.appendChild(fb);
           }else{
             appendMessage(finalReply, "bot");
           }
           saveToHistory("bot", finalReply);
         }catch(_){
           if (botLive){
-            const fb = botLive.querySelector(".feedback-btns");
             botLive.innerHTML = "Error while connecting to the API.";
-            if (fb) botLive.appendChild(fb);
           }else{
             appendMessage("Error while connecting to the API.", "bot");
           }
@@ -407,19 +460,17 @@
   /* ---------------------------
      Append / Save / Reset
   ----------------------------*/
+  function escapeHTML(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
   function appendMessage(msg, sender, scroll){
     if (!chatLog) return null;
     const msgDiv = document.createElement("div");
     msgDiv.className = "chatbot-message " + (sender === "user" ? "user-message" : "bot-message");
-    msgDiv.innerHTML = msg;
+    // Terima HTML untuk bot (mis. summary bubble), tapi escape untuk user
+    if (sender === "user") msgDiv.textContent = String(msg);
+    else msgDiv.innerHTML = msg;
 
-    if (sender === "bot"){
-      const feedback = document.createElement("div");
-      feedback.className = "feedback-btns";
-      feedback.innerHTML = '<button onclick="feedbackClick(\'up\')" aria-label="thumbs up">👍</button><button onclick="feedbackClick(\'down\')" aria-label="thumbs down">👎</button>';
-      msgDiv.appendChild(feedback);
-    }
-
+    // ❌ Tidak ada thumbs/rating UI lagi
     chatLog.appendChild(msgDiv);
     if (scroll === undefined || scroll) chatLog.scrollTop = chatLog.scrollHeight;
     return msgDiv;
@@ -463,14 +514,6 @@
     form.dispatchEvent(new Event("submit"));
     track("faq_click", { text: text });
   }
-
-  /* ---------------------------
-     Feedback
-  ----------------------------*/
-  window.feedbackClick = function(type){
-    alert(type === "up" ? "Thanks for your feedback! 👍" : "We'll improve. 👎");
-    track("chat_feedback", { type: type });
-  };
 
   /* ---------------------------
      UI Texts / Product options
@@ -543,7 +586,6 @@
     }
     if (lower.includes("tertarik") || lower.includes("interested")){
       appendMessage(lang==="de" ? "Super! Bitte füllen Sie dieses kurze Formular aus:" : "Great! Please fill out this short form:", "bot");
-      // langsung buka modal
       const label = window.Funnel && Funnel.state && Funnel.state.productLabel ? Funnel.state.productLabel : "Beratung";
       const qual = window.Funnel && Funnel.state ? (Funnel.state.data || {}) : {};
       openLeadForm(label, qual);
@@ -888,8 +930,8 @@
     }
     if (d.install_timeline === undefined){
       const opts = (lang==="de"
-        ? [{label:"Schnellstmöglich",value:"asap"},{label:"1–3 Monate",value:"1-3"},{label:"4–6 Monate",value:"4-6"},{label:">6 Monate",value:">6"}]
-        : [{label:"ASAP",value:"asap"},{label:"1–3 months",value:"1-3"},{label:"4–6 months",value:"4-6"},{label:">6 months",value:">6"}]);
+        ? [{label:"Schnellstmöglich",value:"asap"},{label:"1–3 Monate",value:"1-3"},{label:"4–6 Monate",value:"4-6"},{label:">6 Monate",value:">6"}])
+        : [{label:"ASAP",value:"asap"},{label:"1–3 months",value:"1-3"},{label:"4–6 months",value:"4-6"},{label:">6 months",value:">6"}];
       askCards(Q.install_timeline_q[lang], opts, "install_timeline"); return;
     }
     if (d.property_street_number === undefined){
@@ -1124,6 +1166,9 @@
     }catch(_){}
   }
 
+  /* ---------------------------
+     Expose a few helpers
+  ----------------------------*/
   window.startGreetingFlow   = startGreetingFlow;
   window.showProductOptions  = showProductOptions;
   window.appendMessage       = appendMessage;
