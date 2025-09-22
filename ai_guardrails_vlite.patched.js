@@ -1,4 +1,3 @@
-<script>
 /**
  * ai_guardrails_vlite.patched.js (final, 2025-09-23)
  * - Rewrite request relatif → CONFIG.BASE_API_URL (ALLOW/DENY aware)
@@ -48,7 +47,6 @@
 
   // ---------- Idempotent guard ----------
   if (window.__pv_fetch_patched__) {
-    // Sudah dipatch? tetap pastikan file utama diload setelahnya.
     try {
       var s1 = document.createElement("script");
       s1.src = "ai_guardrails_vlite.js";
@@ -80,7 +78,6 @@
     /^\/?(?:lead)(?:\/|$)/i,
     /^\/?(?:track)(?:\/|$)/i
   ];
-  // Jangan rewrite asset/statics
   var DEFAULT_DENY = [
     /^\/?(?:assets|img|images|static|public)\//i,
     /\.svg(?:\?|#|$)/i, /\.png(?:\?|#|$)/i, /\.jpg(?:\?|#|$)/i, /\.jpeg(?:\?|#|$)/i, /\.webp(?:\?|#|$)/i, /\.ico(?:\?|#|$)/i,
@@ -95,7 +92,7 @@
   function SHOULD_REWRITE(url) {
     try {
       if (!isRelative(url)) return false;
-      var test = url.replace(/^\/+/, ""); // strip leading slash
+      var test = url.replace(/^\/+/, "");
       if (DENY.length && matchAny(DENY, test)) { if (DBG) console.debug("[guardrails] deny", test); return false; }
       var ok = ALLOW.length ? matchAny(ALLOW, test) : false;
       if (DBG) console.debug("[guardrails] allow?", test, ok);
@@ -117,8 +114,6 @@
   var _origFetch = window.fetch ? window.fetch.bind(window) : null;
 
   function cloneLikeRequest(absUrl, req, init) {
-    // Buat Request baru dengan URL sudah direwrite, tanpa konsumsi body:
-    // gunakan req.clone() agar stream body tetap utuh.
     try {
       var src = (req && typeof req.clone === "function") ? req.clone() : req;
       var method = (init && init.method) || (src && src.method) || "GET";
@@ -147,7 +142,6 @@
       };
       return new Request(absUrl, opts);
     } catch (_) {
-      // fallback ke string URL bila gagal cloning (edge cases)
       return absUrl;
     }
   }
@@ -235,11 +229,10 @@
   try {
     var s = document.createElement("script");
     s.src = "ai_guardrails_vlite.js";
-    s.async = false; // pertahankan urutan
+    s.async = false;
     s.onerror = function(){};
     var here = document.currentScript;
     if (here && here.parentNode) here.parentNode.insertBefore(s, here);
     else document.head.appendChild(s);
   } catch (_) {}
 })();
-</script>
