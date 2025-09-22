@@ -10,20 +10,16 @@
 
   <!-- ===== PWA + Icons ===== -->
   <link rel="manifest" href="manifest.json"/>
+  <!-- Fallback icon (png) + SVG icon (Wattson) – keduanya di root -->
   <link rel="icon" href="planville-logo.png" type="image/png"/>
-  <!-- (Opsional) favicon svg khusus Wattson -->
-  <!-- <link rel="icon" type="image/svg+xml" href="/assets/wattson.svg"> -->
+  <link rel="icon" href="wattson.svg" type="image/svg+xml"/>
 
-  <!-- ===== Network performance hints ===== -->
-  <!-- Preconnect/dns-prefetch ke API backend agar handshake lebih cepat (match CONFIG.BASE_API_URL) -->
+  <!-- ===== Network performance hints (disesuaikan dengan config.js) ===== -->
   <link rel="preconnect" href="https://web-production-53b70.up.railway.app" crossorigin>
   <link rel="dns-prefetch" href="https://web-production-53b70.up.railway.app">
-  <!-- (Opsional) GA4 preconnect (akan dipakai kalau consent OK) -->
-  <link rel="preconnect" href="https://www.googletagmanager.com">
-  <link rel="dns-prefetch" href="https://www.googletagmanager.com">
 
-  <!-- ===== Global Config (eksternal) ===== -->
-  <!-- Harus load lebih awal, karena guardrails & chatbot baca window.CONFIG -->
+  <!-- ===== Global Config (single source) ===== -->
+  <!-- NOTE: config.js sudah berisi BASE_API_URL, flags UI, helper _api(), dll. -->
   <script defer src="config.js"></script>
 
   <!-- ===== Hard kill-switch CSS (rating & cookie banner di dalam chatbot) ===== -->
@@ -41,8 +37,29 @@
       display:none !important; visibility:hidden !important; pointer-events:none !important;
     }
 
-    /* Performa UI: kurangi layout work untuk konten yang di luar viewport */
+    /* Performa UI: kurangi layout work untuk konten di luar viewport */
     .chat-scroll * { content-visibility:auto; contain-intrinsic-size:200px; }
+
+    /* ====== Header layout + Wattson badge (aesthetic) ====== */
+    .chatbot-header{
+      display:flex; align-items:center; justify-content:space-between;
+      gap:12px; padding:10px 12px; border-bottom:1px solid #e8e8e8;
+      background:#fff; position:sticky; top:0; z-index:2;
+    }
+    .chatbot-header .brand-left{display:flex; align-items:center; gap:10px}
+    .chatbot-logo{height:28px; width:auto}
+    .wattson-badge{
+      display:flex; align-items:center; gap:8px;
+      font-weight:600; color:#0f766e; background:#f1f5f9;
+      padding:6px 10px; border-radius:999px;
+      box-shadow: 0 1px 0 rgba(0,0,0,.05) inset;
+      user-select:none;
+    }
+    .wattson-badge img{width:18px; height:18px; display:block}
+    @media (max-width:480px){
+      .wattson-badge{padding:4px 8px; font-size:.9rem}
+      .chatbot-logo{height:24px}
+    }
   </style>
 </head>
 
@@ -56,9 +73,16 @@
   <!-- 💬 Main Chatbot UI -->
   <div class="chatbot-container" id="chatbot" role="dialog" aria-label="Planville Chat – Wattson" aria-modal="false">
     <div class="chatbot-header">
-      <!-- Branding: logo Planville + nama Wattson -->
-      <img src="planville-logo.png" alt="Planville Logo" class="chatbot-logo"/>
-      <h1 id="chatbotTitle">Chat mit Wattson</h1>
+      <!-- Kiri: Logo Planville + Judul -->
+      <div class="brand-left">
+        <img src="planville-logo.png" alt="Planville" class="chatbot-logo"/>
+        <h1 id="chatbotTitle">Chat mit Wattson</h1>
+      </div>
+      <!-- Kanan: Badge Wattson -->
+      <div class="wattson-badge" aria-label="Powered by Wattson">
+        <img src="wattson.svg" alt=""/>
+        <span>Wattson</span>
+      </div>
     </div>
 
     <div id="chatbot-log" class="chat-scroll"></div>
@@ -79,20 +103,14 @@
     </div>
   </div>
 
-  <!-- 🟡 Floating Trigger: Wattson -->
+  <!-- 🟡 Floating Trigger: Wattson (pakai root svg) -->
   <button id="pv-chat-trigger" class="pv-chat-btn" aria-label="Chat mit Wattson öffnen">
-    <img src="/assets/wattson.svg" alt="" class="pv-chat-avatar" width="28" height="28" />
+    <img src="wattson.svg" alt="" class="pv-chat-avatar" width="28" height="28" />
     <span class="pv-chat-label">Wattson</span>
   </button>
 
-  <!-- ❌ (Dihapus) Cookie Consent di DALAM chatbot
-       Cookie banner sebaiknya dikelola di level website/CMP, bukan di widget. -->
-
-  <!-- ⚙️ AI guard (patched; akan auto-load ai_guardrails_vlite.js setelah patch) -->
-  <!-- urutan: config.js → patched guardrails → chatbot.js -->
+  <!-- ⚙️ AI guard (patched) + Chatbot core -->
   <script defer src="ai_guardrails_vlite.patched.js"></script>
-
-  <!-- 💬 Chatbot core (NDJSON + watchdog + auto-retry) -->
   <script defer src="chatbot.js"></script>
 
   <!-- 🧠 GA4 & Event/Lead helpers + Scoring v4 (+ popup-only flow) -->
@@ -111,7 +129,7 @@
     }
     function allowAnalytics(){ return !!getConsentState().analytics; }
 
-    // FE events (gated) — dipakai chatbot via window.trackFE kalau ada
+    // FE events (gated)
     function trackFE(eventName, props = {}, { essential = false } = {}) {
       if (!essential && !allowAnalytics()) return;
       try {
@@ -120,30 +138,23 @@
         window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
       } catch(_) {}
       try {
-        const ep = (window.CONFIG && (window.CONFIG.TRACK_ENDPOINT || "/track")) || "/track";
-        fetch(window._api ? _api(ep) : ep, {
+        fetch(_api("/track"), {
           method: "POST",
           headers: { "Content-Type":"application/json" },
-          body: JSON.stringify({
-            event: eventName,
-            props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props)
-          })
-        }).catch(()=>{});
+          body: JSON.stringify({ event: eventName, props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props) })
+        });
       } catch(_) {}
     }
-    window.trackFE = trackFE;
 
-    /* ---------- SCORING ENGINE v4 (punyamu) ---------- */
-    // Pastikan computeLeadScoreDetailV4 tersedia di bundle-mu atau injected sebelum dipakai.
+    /* ---------- SCORING ENGINE v4 (dipakai apa adanya dari versimu) ---------- */
+    // Asumsikan computeLeadScoreDetailV4 sudah tersedia di bundle kamu.
+    // (Tidak diubah di file ini.)
 
-    /* ---------- Analytics (enable jika consent OK) ---------- */
+    /* ---------- Analytics ---------- */
     function enableGTM() {
       if (!allowAnalytics()) return;
-      var GA_ID = (window.CONFIG && window.CONFIG.GTM_ID) || "";
-      if (!GA_ID) return;
-
       const s = document.createElement("script");
-      s.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(GA_ID);
+      s.src = "https://www.googletagmanager.com/gtag/js?id=G-YL8ECJ5V17";
       s.async = true;
       document.head.appendChild(s);
 
@@ -151,54 +162,10 @@
       function gtag(){ dataLayer.push(arguments); }
       window.gtag = gtag;
       gtag('js', new Date());
-      gtag('config', GA_ID);
+      gtag('config', 'G-YL8ECJ5V17');
     }
-    enableGTM();
 
     /* ---------- Summary helpers (auto-hide kosong) ---------- */
-    function getLang(){
-      try { return document.getElementById("langSwitcher").value || (window.CONFIG?.LANG_DEFAULT || "de"); }
-      catch(_) { return window.CONFIG?.LANG_DEFAULT || "de"; }
-    }
-    function mapProduct(p){
-      const t = (p||"").toLowerCase();
-      if (t.includes("photo") || t.includes("pv")) return "pv";
-      if (t.includes("dach") || t.includes("roof")) return "roof";
-      if (t.includes("wärme") || t.includes("waerme") || t.includes("heat") || t.includes("wp")) return "heatpump";
-      if (t.includes("mieter") || t.includes("tenant")) return "tenant";
-      if (t.includes("klima") || t.includes("air con") || t.includes("aircon")) return "aircon";
-      if (t.includes("fenster") || t.includes("window")) return "window";
-      if (t.includes("speicher") || t.includes("battery")) return "pv";
-      return "pv";
-    }
-    function sessionId(){
-      let s = localStorage.getItem("session_id");
-      if (!s){ s = Date.now()+"-"+Math.random().toString(36).slice(2); localStorage.setItem("session_id", s); }
-      return s;
-    }
-    function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e||"").trim()); }
-
-    function getFunnelMeta(){
-      try{
-        const st = window.Funnel?.state || {};
-        const id = st.id || st.funnelId || "default";
-        const version = st.version || st.funnelVersion || "v1";
-        const src = Array.isArray(st.trace) ? st.trace
-                  : Array.isArray(st.steps) ? st.steps
-                  : Array.isArray(st.log)   ? st.log
-                  : null;
-        const trace = src
-          ? src.map(s => ({
-              id:    s?.id ?? s?.key ?? "",
-              key:   s?.key ?? s?.id ?? "",
-              label: s?.label ?? s?.title ?? "",
-              value: s?.value ?? s?.answer ?? s?.selected ?? ""
-            }))
-          : null;
-        return { id, version, trace };
-      }catch(_){ return { id:"default", version:"v1", trace:null }; }
-    }
-
     function buildLeadSummary(lang, productLabel, q = {}) {
       const L = {
         de: { product:"Produkt", city:"Ort", plz:"PLZ", type:"Gebäudetyp/Installation", roofForm:"Dachform", area:"Dachfläche (m²)", orient:"Ausrichtung", pitch:"Neigungswinkel (°)", shade:"Verschattung", cons:"Jahresverbrauch (kWh)", battery:"Batteriespeicher", timeline:"Zeitrahmen", contact:"Kontaktzeit", address:"Adresse", yes:"Ja", no:"Nein" },
@@ -234,7 +201,7 @@
     }
 
     function showSummaryFromFunnel(qualification = {}) {
-      const lang = getLang();
+      const lang = (window.getCurrentLang?.() || "de");
       const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
       const s = buildLeadSummary(lang, productLabel, qualification);
       const html = `
@@ -245,9 +212,8 @@
         </div>
       `;
       window.appendMessage?.(html, "bot");
-      trackFE("summary_view", { product: mapProduct(productLabel) });
+      trackFE("summary_view", { product: (productLabel||"pv").toLowerCase() });
     }
-    window.showSummaryFromFunnel = showSummaryFromFunnel;
 
     function updateSummaryField(lang, key, value){
       try{
@@ -260,11 +226,11 @@
         const text = `${label}: ${value && String(value).trim() ? value : "-"}`;
         if (li) { li.textContent = text; } else { const newLi = document.createElement("li"); newLi.textContent = text; ul.appendChild(newLi); }
       }catch(_){}}
-    window.updateSummaryField = updateSummaryField;
 
-    /* ---------- Google Sheets logging (opsional; punyamu) ---------- */
+    /* ---------- Google Sheets logging ---------- */
     const GS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxdmC7n29ylriM5eKct4uQx6_7rGrhF0UCRSXamS8xNqzmtBgh9SXgcP5V_-nH0oErv/exec";
     const GS_WEBHOOK_SECRET = "PV_LEADS_WEBHOOK_SECRET_8e2c7f4fb2c3412cbbde2f3e9a0c7b51";
+
     function logLeadToGoogleSheet(payload){
       if (!GS_WEBHOOK_URL) return;
       const data = JSON.stringify({ secret: GS_WEBHOOK_SECRET, data: payload });
@@ -282,25 +248,37 @@
 
     /* ---------- Lead → Backend (/lead) ---------- */
     async function sendLeadToBackend({productLabel, name, address, email, phone, origin, qualification}) {
-      const lang = getLang();
-      const product = mapProduct(productLabel);
+      const lang = (window.getCurrentLang?.() || "de");
+      const product = (function(p){
+        const t = (p||"").toLowerCase();
+        if (t.includes("photo") || t.includes("pv")) return "pv";
+        if (t.includes("dach") || t.includes("roof")) return "roof";
+        if (t.includes("wärme") || t.includes("waerme") || t.includes("heat") || t.includes("wp")) return "heatpump";
+        if (t.includes("mieter") || t.includes("tenant")) return "tenant";
+        if (t.includes("klima") || t.includes("air con") || t.includes("aircon")) return "aircon";
+        if (t.includes("fenster") || t.includes("window")) return "window";
+        if (t.includes("speicher") || t.includes("battery")) return "pv";
+        return "pv";
+      })(productLabel);
+
       const q = (qualification && typeof qualification === "object") ? qualification : { origin: origin || "form", product_label: productLabel };
 
-      // SCORING v4 (pakai engine yang sudah kamu bundle)
-      const detail = window.computeLeadScoreDetailV4
-        ? computeLeadScoreDetailV4(product, q, { name, email, phone, address })
-        : { score: 50, priority: "P2", confidence: 0.7, score_breakdown: "fallback", components: {}, tags: [], risk_flags: [], next_action: "Contact", sla_minutes: 120, routing: "default" };
+      // SCORING v4 – dari bundle kamu
+      const detail = computeLeadScoreDetailV4(product, q, { name, email, phone, address });
       const { score, priority, confidence, score_breakdown, components, tags, risk_flags, next_action, sla_minutes, routing } = detail;
 
-      // Meta funnel
-      const { id: funnel_id, version: funnel_version, trace: funnel_trace } = getFunnelMeta();
+      const st = window.Funnel?.state || {};
+      const funnel_id = st.id || st.funnelId || "default";
+      const funnel_version = st.version || st.funnelVersion || "v1";
+      const traceSrc = Array.isArray(st.trace) ? st.trace : Array.isArray(st.steps) ? st.steps : Array.isArray(st.log) ? st.log : null;
+      const funnel_trace = traceSrc ? traceSrc.map(s => ({ id: s?.id ?? s?.key ?? "", key: s?.key ?? s?.id ?? "", label: s?.label ?? s?.title ?? "", value: s?.value ?? s?.answer ?? s?.selected ?? "" })) : null;
 
       const summary = buildLeadSummary(lang, productLabel, q);
       const payload = {
         source: "Website Funnel",
         product,
         qualification: q,
-        contact: { name, address, email: (validEmail(email)?email:"—"), phone, consent: true },
+        contact: { name, address, email, phone, consent: true },
         score, priority, confidence,
         score_breakdown,
         score_components: components,
@@ -310,7 +288,7 @@
         notes: origin ? `Submitted via ${origin}` : "Submitted via chat funnel form",
         meta: {
           lang,
-          session_id: sessionId(),
+          session_id: (function(){ let s = localStorage.getItem("session_id"); if(!s){ s = Date.now()+"-"+Math.random().toString(36).slice(2); localStorage.setItem("session_id", s);} return s; })(),
           variant: (localStorage.getItem("ab_variant") || "A"),
           funnel_id, funnel_version, funnel_trace
         }
@@ -319,20 +297,14 @@
       trackFE("contact_submit", { product, origin: origin||"unknown", priority, score, confidence });
       logLeadToGoogleSheet(payload);
 
-      const ep = (window.CONFIG && (window.CONFIG.LEAD_ENDPOINT || "/lead")) || "/lead";
-      const res = await fetch(window._api ? _api(ep) : ep, {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify(payload)
-      });
+      const res = await fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error("Lead push failed");
-      return res.json().catch(()=> ({}));
+      return res.json();
     }
-    window.sendLeadToBackend = sendLeadToBackend;
 
     /* ---------- Timeline selected → SUMMARY + POPUP ---------- */
     window.onTimelineSelected = function(timelineValue){
-      const lang = getLang();
+      const lang = (window.getCurrentLang?.() || "de");
       const productLabel = (window.Funnel?.state?.productLabel)
         || (document.querySelector(".product-button.selected")?.textContent)
         || "Photovoltaik";
@@ -347,25 +319,29 @@
         "bot"
       );
       showSummaryFromFunnel(qualification);
-      // popup universal (defined in chatbot.js)
+      // popup universal (chatbot.js)
       if (typeof window.openLeadForm === "function") {
         window.openLeadForm(productLabel, qualification);
       }
-      trackFE("contact_open", { product: mapProduct(productLabel), timeline: timelineValue });
+      trackFE("contact_open", { product: (productLabel||"pv").toLowerCase(), timeline: timelineValue });
     };
 
     /* ---------- Disqualified lead push ---------- */
     window.sendDisqualifiedLead = function(reason){
-      const lang = getLang();
+      const lang = (window.getCurrentLang?.() || "de");
       const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
       const qualification = (window.Funnel?.state?.data) || {};
       const summary = buildLeadSummary(lang, productLabel, qualification);
 
-      const { id: funnel_id, version: funnel_version, trace: funnel_trace } = getFunnelMeta();
+      const st = window.Funnel?.state || {};
+      const funnel_id = st.id || st.funnelId || "default";
+      const funnel_version = st.version || st.funnelVersion || "v1";
+      const traceSrc = Array.isArray(st.trace) ? st.trace : Array.isArray(st.steps) ? st.steps : Array.isArray(st.log) ? st.log : null;
+      const funnel_trace = traceSrc ? traceSrc.map(s => ({ id: s?.id ?? s?.key ?? "", key: s?.key ?? s?.id ?? "", label: s?.label ?? s?.title ?? "", value: s?.value ?? s?.answer ?? s?.selected ?? "" })) : null;
 
       const payload = {
         source: "Website Funnel",
-        product: mapProduct(productLabel),
+        product: (productLabel||"pv").toLowerCase(),
         qualification: { ...qualification, disqualify_reason: reason || "gate_failed" },
         contact: { name:"-", address:"-", email:"no@email.invalid", phone:"-" },
         score: 0,
@@ -382,35 +358,27 @@
         notes: "Auto-disqualify gate",
         meta: {
           lang,
-          session_id: sessionId(),
+          session_id: (function(){ let s = localStorage.getItem("session_id"); if(!s){ s = Date.now()+"-"+Math.random().toString(36).slice(2); localStorage.setItem("session_id", s);} return s; })(),
           variant: (localStorage.getItem("ab_variant") || "A"),
           funnel_id, funnel_version, funnel_trace
         }
       };
       try {
         logLeadToGoogleSheet(payload);
-        const ep = (window.CONFIG && (window.CONFIG.LEAD_ENDPOINT || "/lead")) || "/lead";
-        fetch(window._api ? _api(ep) : ep, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+        fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
       } catch(_){ }
       trackFE("disqualify", { product: payload.product, reason: payload.qualification.disqualify_reason });
     };
 
     /* ---------- Boot UX ---------- */
     window.addEventListener("DOMContentLoaded", () => {
-      // Force A/B variant (opsional dari CONFIG)
-      try {
-        const f = window.CONFIG && window.CONFIG.AB_FORCE_VARIANT;
-        if (f === "A" || f === "B") localStorage.setItem("ab_variant", f);
-        else if (!localStorage.getItem("ab_variant")) localStorage.setItem("ab_variant", Math.random() < 0.5 ? "A" : "B");
-      } catch(_) {}
-
       // Set judul sesuai CONFIG.CHATBOT_NAME
       try {
         const t = document.getElementById("chatbotTitle");
         if (t && window.CONFIG?.CHATBOT_NAME) t.textContent = `Chat mit ${window.CONFIG.CHATBOT_NAME}`;
       } catch(_) {}
 
-      // Toggle open/close chatbot
+      // Toggle open/close chatbot (kalau ada trigger)
       const btn = document.getElementById("pv-chat-trigger");
       const panel = document.getElementById("chatbot");
       btn?.addEventListener("click", () => {
@@ -421,11 +389,10 @@
           window.initChatbotOnce();
         }
       });
+
+      // Enable analytics jika consent
+      enableGTM();
     });
   </script>
-
-  <noscript>
-    Bitte JavaScript aktivieren, um den Wattson-Chatbot zu benutzen.
-  </noscript>
 </body>
 </html>
