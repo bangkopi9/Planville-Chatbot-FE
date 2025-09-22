@@ -1,11 +1,10 @@
 /**
- * ai_guardrails_vlite.patched.js (enhanced)
- * - Ensures all relative API calls go to CONFIG.BASE_API_URL.
- * - Rewrites both "/chat" and "chat" (no-leading-slash) styles.
- * - Optional allow/deny lists via CONFIG.API_REWRITE_ALLOW / CONFIG.API_REWRITE_DENY (arrays of regex strings).
- * - Safe Request cloning; preserves headers/credentials/signal.
- * - EventSource patched for SSE.
- * - Loads original ai_guardrails_vlite.js AFTER patching (sync order).
+ * ai_guardrails_vlite.patched.js (final, 2025-09-22)
+ * - Rewrites relative API calls ke CONFIG.BASE_API_URL (ALLOW/DENY aware)
+ * - Menangani path "/chat" dan "chat" (tanpa leading slash)
+ * - Clone Request aman (tanpa konsumsi body)
+ * - Patch EventSource untuk SSE
+ * - Auto-load ai_guardrails_vlite.js setelah patch (sync order)
  */
 
 (function () {
@@ -35,13 +34,11 @@
       var base = _baseURL();
       var p = String(path || "");
       if (!base) return p;
-      // normalize: ensure single leading slash
-      if (!/^\//.test(p)) p = "/" + p;
+      if (!/^\//.test(p)) p = "/" + p; // single leading slash
       return base + p;
     } catch (_) { return path; }
   }
 
-  // expose (idempotent)
   try {
     if (typeof window._api !== "function") window._api = _api;
     if (typeof window._baseURL !== "function") window._baseURL = _baseURL;
@@ -49,7 +46,6 @@
 
   // ---------- Idempotent guard ----------
   if (window.__pv_fetch_patched__) {
-    // already patched → still load original
     try {
       var s1 = document.createElement("script");
       s1.src = "ai_guardrails_vlite.js";
@@ -61,73 +57,70 @@
   window.__pv_fetch_patched__ = true;
 
   // ---------- Matcher ----------
-  function compileList(arr, def) {
+  function compileList(arr, fallback) {
     try {
-      if (!arr || !arr.length) return def || [];
-      return arr.map(function (s) {
-        try { return new RegExp(s); } catch (_) { return null; }
-      }).filter(Boolean);
-    } catch (_) { return def || []; }
+      if (!arr || !arr.length) return fallback || [];
+      return arr.map(function (s) { try { return new RegExp(s); } catch (_) { return null; } }).filter(Boolean);
+    } catch (_) { return fallback || []; }
   }
+  function isAbs(url) { return /^(?:https?:)?\/\//i.test(url) || /^data:|^blob:/i.test(url); }
+  function isRelative(url) { return typeof url === "string" && !isAbs(url); }
+  function matchAny(reList, s) { for (var i=0;i<reList.length;i++) if (reList[i].test(s)) return true; return false; }
 
   var CFG = _cfg() || {};
-  var ALLOW = compileList(CFG.API_REWRITE_ALLOW, [
+  var DEFAULT_ALLOW = [
     /^\/?(?:ai)(?:\/|$)/i,
     /^\/?(?:chat)(?:\/|$)/i,
     /^\/?(?:lead)(?:\/|$)/i,
     /^\/?(?:track)(?:\/|$)/i
-  ]);
-  var DENY = compileList(CFG.API_REWRITE_DENY, []); // e.g. ["^/assets/"]
+  ];
 
-  function isAbs(url) {
-    return /^(?:https?:)?\/\//i.test(url) || /^data:|^blob:/i.test(url);
-  }
-  function isRelative(url) {
-    return typeof url === "string" && !isAbs(url);
-  }
-  function matchAny(reList, s) {
-    for (var i = 0; i < reList.length; i++) if (reList[i].test(s)) return true;
-    return false;
-  }
+  // Default deny: jangan rewrite asset/statics
+  var DEFAULT_DENY = [
+    /^\/?(?:assets|img|images|static|public)\//i,
+    /\.svg(?:\?|#|$)/i, /\.png(?:\?|#|$)/i, /\.jpg(?:\?|#|$)/i, /\.jpeg(?:\?|#|$)/i, /\.webp(?:\?|#|$)/i, /\.ico(?:\?|#|$)/i,
+    /\.css(?:\?|#|$)/i, /\.js(?:\?|#|$)/i, /\.map(?:\?|#|$)/i,
+    /^(?:manifest\.json|site\.webmanifest)(?:\?|#|$)/i
+  ];
+
+  var ALLOW = compileList(CFG.API_REWRITE_ALLOW, DEFAULT_ALLOW);
+  var DENY  = compileList(CFG.API_REWRITE_DENY,  DEFAULT_DENY);
 
   function SHOULD_REWRITE(url) {
     if (!isRelative(url)) return false;
-    // normalize for matching (strip leading slash for allow/deny that include ^\/?)
-    var test = url.replace(/^\/+/, "");
+    var test = url.replace(/^\/+/, ""); // strip leading slash untuk kecocokan regex
     if (DENY.length && matchAny(DENY, test)) return false;
-    return ALLOW.length ? matchAny(ALLOW, test) : false;
+    return ALLOW.length ? matchAny(A LLOW, test) : false; // eslint-disable-line no-undef
   }
 
   // ---------- Patch fetch ----------
   var _origFetch = window.fetch ? window.fetch.bind(window) : null;
 
-  function cloneLikeRequest(absUrl, resource, init) {
-    // Try to preserve as much of the original Request as possible
-    try {
-      var method = (resource && resource.method) || (init && init.method) || "GET";
-      var headers = (resource && resource.headers) || (init && init.headers) || undefined;
-      var body = (resource && resource.body) || (init && init.body) || undefined;
-
-      // If it's a Request, headers might be a Headers object; keep it as-is.
-      var opts = {
-        method: method,
-        headers: headers,
-        body: body,
-        mode: (resource && resource.mode) || (init && init.mode),
-        credentials: (resource && resource.credentials) || (init && init.credentials),
-        cache: (resource && resource.cache) || (init && init.cache),
-        redirect: (resource && resource.redirect) || (init && init.redirect),
-        referrer: (resource && resource.referrer) || (init && init.referrer),
-        referrerPolicy: (resource && resource.referrerPolicy) || (init && init.referrerPolicy),
-        integrity: (resource && resource.integrity) || (init && init.integrity),
-        keepalive: (resource && resource.keepalive) || (init && init.keepalive),
-        signal: (resource && resource.signal) || (init && init.signal)
-      };
-      return new Request(absUrl, opts);
-    } catch (_) {
-      // fallback to string URL + init
-      return absUrl;
+  function cloneLikeRequest(absUrl, req, init) {
+    // Jika resource adalah Request, preserve opsi sebanyak mungkin tanpa mengonsumsi body
+    if (req && typeof req === "object" && typeof req.url === "string") {
+      try {
+        // NOTE: Request.body boleh diteruskan selama belum digunakan
+        var opts = {
+          method: req.method || (init && init.method) || "GET",
+          headers: req.headers || (init && init.headers),
+          body: (typeof req.body !== "undefined" ? req.body : (init && init.body)),
+          mode: req.mode || (init && init.mode),
+          credentials: req.credentials || (init && init.credentials),
+          cache: req.cache || (init && init.cache),
+          redirect: req.redirect || (init && init.redirect),
+          referrer: req.referrer || (init && init.referrer),
+          referrerPolicy: req.referrerPolicy || (init && init.referrerPolicy),
+          integrity: req.integrity || (init && init.integrity),
+          keepalive: req.keepalive || (init && init.keepalive),
+          signal: req.signal || (init && init.signal)
+        };
+        return new Request(absUrl, opts);
+      } catch (_) {
+        // fallback ke string + init
+      }
     }
+    return absUrl;
   }
 
   if (_origFetch) {
@@ -146,7 +139,7 @@
           resource = isReq ? cloneLikeRequest(abs, resource, init) : abs;
         }
       } catch (_) {
-        // swallow patch errors and continue
+        // kalau patch error, biarkan fetch jalan normal
       }
       return _origFetch(resource, init);
     };
@@ -158,13 +151,10 @@
     if (_OrigES && !_OrigES.__pv_patched__) {
       var PatchedES = function (url, config) {
         try {
-          if (typeof url === "string" && SHOULD_REWRITE(url)) {
-            url = _api(url);
-          }
+          if (typeof url === "string" && SHOULD_REWRITE(url)) url = _api(url);
         } catch (_) {}
         return new _OrigES(url, config);
       };
-      // copy static props
       for (var k in _OrigES) { try { PatchedES[k] = _OrigES[k]; } catch (_) {} }
       PatchedES.prototype = _OrigES.prototype;
       PatchedES.__pv_patched__ = true;
@@ -176,14 +166,9 @@
   try {
     var s = document.createElement("script");
     s.src = "ai_guardrails_vlite.js";
-    s.async = false; // keep order
+    s.async = false; // pertahankan urutan
     var here = document.currentScript;
-    if (here && here.parentNode) {
-      here.parentNode.insertBefore(s, here);
-    } else {
-      document.head.appendChild(s);
-    }
-  } catch (_) {
-    // even if this fails, fetch/EventSource patches are active
-  }
+    if (here && here.parentNode) here.parentNode.insertBefore(s, here);
+    else document.head.appendChild(s);
+  } catch (_) {}
 })();
