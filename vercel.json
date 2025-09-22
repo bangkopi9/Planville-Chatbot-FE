@@ -1,6 +1,10 @@
 {
+  "version": 2,
+  "builds": [{ "src": "**/*", "use": "@vercel/static" }],
+
   "cleanUrls": true,
   "trailingSlash": false,
+
   "rewrites": [
     { "source": "/ai/(.*)",        "destination": "https://web-production-352d9.up.railway.app/ai/$1" },
     { "source": "/chat",           "destination": "https://web-production-352d9.up.railway.app/chat" },
@@ -11,6 +15,7 @@
     { "source": "/schedule/(.*)",  "destination": "https://web-production-352d9.up.railway.app/schedule/$1" },
     { "source": "/healthz",        "destination": "https://web-production-352d9.up.railway.app/healthz" }
   ],
+
   "headers": [
     {
       "source": "/(.*)",
@@ -22,33 +27,36 @@
         { "key": "Permissions-Policy",     "value": "geolocation=(), camera=(), microphone=()" }
       ]
     },
-    {
-      "source": "/chat",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-store" }
-      ]
-    },
-    {
-      "source": "/chat/stream",
-      "headers": [
+
+    /* === API streaming: no-store === */
+    { "source": "/chat", "headers": [ { "key": "Cache-Control", "value": "no-store" } ] },
+    { "source": "/chat/stream", "headers": [
         { "key": "Cache-Control", "value": "no-store" },
         { "key": "Connection",    "value": "keep-alive" }
-      ]
-    },
-    {
-      "source": "/manifest.json",
-      "headers": [
+    ]},
+
+    /* === PWA manifest === */
+    { "source": "/manifest.json", "headers": [
         { "key": "Content-Type",  "value": "application/manifest+json; charset=utf-8" },
         { "key": "Cache-Control", "value": "public, max-age=3600" }
-      ]
-    },
-    {
-      "source": "/(.*)\\.(?:css|js|png|jpg|jpeg|webp|svg|ico)",
-      "headers": [
+    ]},
+
+    /* === CSS: JANGAN immutable (biar update kebaca) === */
+    { "source": "/style.css", "headers": [
+        { "key": "Cache-Control", "value": "max-age=0, s-maxage=0, must-revalidate" }
+    ]},
+
+    /* === JS (tanpa bundler / hash): cache pendek saja === */
+    { "source": "/(.*)\\.(?:js)", "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600" }
+    ]},
+
+    /* === Images / icons: boleh immutable tahunan === */
+    { "source": "/(.*)\\.(?:png|jpg|jpeg|webp|svg|ico)", "headers": [
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
-      ]
-    }
+    ]}
   ],
+
   "redirects": [
     { "source": "/health", "destination": "/healthz", "permanent": false }
   ]
