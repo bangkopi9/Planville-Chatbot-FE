@@ -1,14 +1,58 @@
 {
-  "rewrites": [
-    { "source": "/ai/(.*)",        "destination": "https://web-production-352d9.up.railway.app/ai/$1" },
-    { "source": "/chat",           "destination": "https://web-production-352d9.up.railway.app/chat" },
-    { "source": "/chat/(.*)",      "destination": "https://web-production-352d9.up.railway.app/chat/$1" },
-    { "source": "/lead",           "destination": "https://web-production-352d9.up.railway.app/lead" },
-    { "source": "/track",          "destination": "https://web-production-352d9.up.railway.app/track" },
-    { "source": "/funnel/(.*)",    "destination": "https://web-production-352d9.up.railway.app/funnel/$1" },
-    { "source": "/schedule/(.*)",  "destination": "https://web-production-352d9.up.railway.app/schedule/$1" },
-    { "source": "/healthz",        "destination": "https://web-production-352d9.up.railway.app/healthz" }
-  ],
   "cleanUrls": true,
-  "trailingSlash": false
+  "trailingSlash": false,
+
+  "rewrites": [
+    { "source": "/ai/(.*)",        "destination": "https://web-production-53b70.up.railway.app/ai/$1" },
+    { "source": "/chat",           "destination": "https://web-production-53b70.up.railway.app/chat" },
+    { "source": "/chat/(.*)",      "destination": "https://web-production-53b70.up.railway.app/chat/$1" },
+    { "source": "/lead",           "destination": "https://web-production-53b70.up.railway.app/lead" },
+    { "source": "/track",          "destination": "https://web-production-53b70.up.railway.app/track" },
+    { "source": "/funnel/(.*)",    "destination": "https://web-production-53b70.up.railway.app/funnel/$1" },
+    { "source": "/schedule/(.*)",  "destination": "https://web-production-53b70.up.railway.app/schedule/$1" },
+    { "source": "/healthz",        "destination": "https://web-production-53b70.up.railway.app/healthz" }
+  ],
+
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Referrer-Policy",        "value": "strict-origin-when-cross-origin" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options",        "value": "SAMEORIGIN" },
+        { "key": "X-XSS-Protection",       "value": "0" },
+        { "key": "Permissions-Policy",     "value": "geolocation=(), camera=(), microphone=()" }
+      ]
+    },
+    {
+      "source": "/chat",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
+    },
+    {
+      "source": "/chat/stream",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Connection",    "value": "keep-alive" }
+      ]
+    },
+    {
+      "source": "/manifest.json",
+      "headers": [
+        { "key": "Content-Type",  "value": "application/manifest+json; charset=utf-8" },
+        { "key": "Cache-Control", "value": "public, max-age=3600" }
+      ]
+    },
+    {
+      "source": "/(.*)\\.(?:css|js|png|jpg|jpeg|webp|svg|ico)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
+  ],
+
+  "redirects": [
+    { "source": "/health", "destination": "/healthz", "permanent": false }
+  ]
 }
