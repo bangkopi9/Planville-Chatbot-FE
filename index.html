@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="theme-color" content="#0f766e"/>
   <title>Planville AI Chatbot — Wattson</title>
 
   <!-- ===== CSS utama ===== -->
@@ -14,12 +15,12 @@
   <link rel="icon" href="planville-logo.png" type="image/png"/>
   <link rel="icon" href="wattson.svg" type="image/svg+xml"/>
 
-  <!-- ===== Network performance hints (disesuaikan dengan config.js) ===== -->
-  <link rel="preconnect" href="web-production-352d9.up.railway.app" crossorigin>
-  <link rel="dns-prefetch" href="web-production-352d9.up.railway.app">
+  <!-- ===== Network performance hints (sesuaikan dengan config.js) ===== -->
+  <link rel="preconnect" href="https://web-production-352d9.up.railway.app" crossorigin>
+  <link rel="dns-prefetch" href="//web-production-352d9.up.railway.app">
 
   <!-- ===== Global Config (single source) ===== -->
-  <!-- NOTE: config.js sudah berisi BASE_API_URL, flags UI, helper _api(), dll. -->
+  <!-- NOTE: config.js berisi BASE_API_URL, flags UI, dll. -->
   <script defer src="config.js"></script>
 
   <!-- ===== Hard kill-switch CSS (rating & cookie banner di dalam chatbot) ===== -->
@@ -65,47 +66,48 @@
 
 <body>
   <!-- 📌 Sidebar FAQ -->
-  <div class="faq-sidebar">
+  <aside class="faq-sidebar" aria-label="FAQ">
     <h2>Frequently Asked Questions</h2>
     <ul id="faq-list"></ul>
-  </div>
+  </aside>
 
   <!-- 💬 Main Chatbot UI -->
-  <div class="chatbot-container" id="chatbot" role="dialog" aria-label="Planville Chat – Wattson" aria-modal="false">
+  <main class="chatbot-container" id="chatbot" role="dialog" aria-label="Planville Chat – Wattson" aria-modal="false">
     <div class="chatbot-header">
       <!-- Kiri: Logo Planville + Judul -->
       <div class="brand-left">
-        <img src="planville-logo.png" alt="Planville" class="chatbot-logo"/>
+        <img src="planville-logo.png" alt="Planville" class="chatbot-logo" loading="lazy" decoding="async"/>
         <h1 id="chatbotTitle">Chat mit Wattson</h1>
       </div>
       <!-- Kanan: Badge Wattson -->
       <div class="wattson-badge" aria-label="Powered by Wattson">
-        <img src="wattson.svg" alt=""/>
+        <img src="wattson.svg" alt="" loading="lazy" decoding="async"/>
         <span>Wattson</span>
       </div>
     </div>
 
-    <div id="chatbot-log" class="chat-scroll"></div>
+    <div id="chatbot-log" class="chat-scroll" aria-live="polite" aria-atomic="false"></div>
     <div id="typing-bubble" class="chatbot-message bot-message typing-bubble" style="display:none">...</div>
 
-    <form id="chatbot-form" autocomplete="off">
-      <input id="chatbot-input" type="text" autocomplete="off" placeholder="Stell deine Frage…"/>
+    <form id="chatbot-form" autocomplete="off" aria-label="Chat-Eingabe">
+      <label for="chatbot-input" class="sr-only" aria-hidden="true">Frage eingeben</label>
+      <input id="chatbot-input" type="text" inputmode="text" autocomplete="off" placeholder="Stell deine Frage…" aria-required="true"/>
       <button type="submit" aria-label="Senden">💬</button>
     </form>
 
     <!-- Language switch -->
     <div class="language-switcher">
       <label for="langSwitcher">🌐 Language:</label>
-      <select id="langSwitcher">
+      <select id="langSwitcher" aria-label="Sprache wählen">
         <option value="de">🇩🇪 Deutsch</option>
         <option value="en">🇬🇧 English</option>
       </select>
     </div>
-  </div>
+  </main>
 
   <!-- 🟡 Floating Trigger: Wattson (pakai root svg) -->
-  <button id="pv-chat-trigger" class="pv-chat-btn" aria-label="Chat mit Wattson öffnen">
-    <img src="wattson.svg" alt="" class="pv-chat-avatar" width="28" height="28" />
+  <button id="pv-chat-trigger" class="pv-chat-btn" type="button" aria-label="Chat mit Wattson öffnen">
+    <img src="wattson.svg" alt="" class="pv-chat-avatar" width="28" height="28" loading="lazy" decoding="async"/>
     <span class="pv-chat-label">Wattson</span>
   </button>
 
@@ -138,6 +140,7 @@
         window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
       } catch(_) {}
       try {
+        // _api didefinisikan di chatbot.js yang sudah dimuat sebelumnya
         fetch(_api("/track"), {
           method: "POST",
           headers: { "Content-Type":"application/json" },
@@ -146,9 +149,8 @@
       } catch(_) {}
     }
 
-    /* ---------- SCORING ENGINE v4 (dipakai apa adanya dari versimu) ---------- */
-    // Asumsikan computeLeadScoreDetailV4 sudah tersedia di bundle kamu.
-    // (Tidak diubah di file ini.)
+    /* ---------- SCORING ENGINE v4 (dipakai apa adanya dari bundle kamu) ---------- */
+    // Harus tersedia: computeLeadScoreDetailV4(product, qualification, identity)
 
     /* ---------- Analytics ---------- */
     function enableGTM() {
@@ -164,6 +166,11 @@
       gtag('js', new Date());
       gtag('config', 'G-YL8ECJ5V17');
     }
+
+    /* ---------- Lang helper (fallback, aman kalau chatbot.js belum expose) ---------- */
+    window.getCurrentLang = window.getCurrentLang || (function(){
+      return () => (document.getElementById("langSwitcher")?.value || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de");
+    })();
 
     /* ---------- Summary helpers (auto-hide kosong) ---------- */
     function buildLeadSummary(lang, productLabel, q = {}) {
@@ -201,7 +208,7 @@
     }
 
     function showSummaryFromFunnel(qualification = {}) {
-      const lang = (window.getCurrentLang?.() || "de");
+      const lang = (window.getCurrentLang?.() || (()=>'de'))();
       const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
       const s = buildLeadSummary(lang, productLabel, qualification);
       const html = `
@@ -225,7 +232,8 @@
         let li = [...ul.querySelectorAll("li")].find(node => node.textContent.trim().startsWith(label + ":"));
         const text = `${label}: ${value && String(value).trim() ? value : "-"}`;
         if (li) { li.textContent = text; } else { const newLi = document.createElement("li"); newLi.textContent = text; ul.appendChild(newLi); }
-      }catch(_){}}
+      }catch(_){}
+    }
 
     /* ---------- Google Sheets logging ---------- */
     const GS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxdmC7n29ylriM5eKct4uQx6_7rGrhF0UCRSXamS8xNqzmtBgh9SXgcP5V_-nH0oErv/exec";
@@ -248,7 +256,7 @@
 
     /* ---------- Lead → Backend (/lead) ---------- */
     async function sendLeadToBackend({productLabel, name, address, email, phone, origin, qualification}) {
-      const lang = (window.getCurrentLang?.() || "de");
+      const lang = (window.getCurrentLang?.() || (()=>'de'))();
       const product = (function(p){
         const t = (p||"").toLowerCase();
         if (t.includes("photo") || t.includes("pv")) return "pv";
@@ -263,7 +271,7 @@
 
       const q = (qualification && typeof qualification === "object") ? qualification : { origin: origin || "form", product_label: productLabel };
 
-      // SCORING v4 – dari bundle kamu
+      // SCORING v4 – dari bundle kamu (harus ada computeLeadScoreDetailV4)
       const detail = computeLeadScoreDetailV4(product, q, { name, email, phone, address });
       const { score, priority, confidence, score_breakdown, components, tags, risk_flags, next_action, sla_minutes, routing } = detail;
 
@@ -304,7 +312,7 @@
 
     /* ---------- Timeline selected → SUMMARY + POPUP ---------- */
     window.onTimelineSelected = function(timelineValue){
-      const lang = (window.getCurrentLang?.() || "de");
+      const lang = (window.getCurrentLang?.() || (()=>'de'))();
       const productLabel = (window.Funnel?.state?.productLabel)
         || (document.querySelector(".product-button.selected")?.textContent)
         || "Photovoltaik";
@@ -328,7 +336,7 @@
 
     /* ---------- Disqualified lead push ---------- */
     window.sendDisqualifiedLead = function(reason){
-      const lang = (window.getCurrentLang?.() || "de");
+      const lang = (window.getCurrentLang?.() || (()=>'de'))();
       const productLabel = (window.Funnel?.state?.productLabel) || "Photovoltaik";
       const qualification = (window.Funnel?.state?.data) || {};
       const summary = buildLeadSummary(lang, productLabel, qualification);
@@ -393,6 +401,12 @@
       // Enable analytics jika consent
       enableGTM();
     });
+
+    // Expose helper untuk file lain
+    window.trackFE = trackFE;
+    window.showSummaryFromFunnel = showSummaryFromFunnel;
+    window.updateSummaryField = updateSummaryField;
+    window.sendLeadToBackend = sendLeadToBackend;
   </script>
 </body>
 </html>
