@@ -1,9 +1,10 @@
-/* === PLANVILLE AI CHATBOT — LIGHT-ONLY FINAL (2025-09-22) ===
+/* === PLANVILLE AI CHATBOT — LIGHT-ONLY FINAL (2025-09-23) ===
    - Clean light palette, desktop & mobile
    - NO cookie banner styles (pakai CMP global)
    - NO thumbs rating styles
    - Stream-friendly (content-visibility)
    - Floating trigger button + panel open/close
+   - Focus-visible ring + a11y tweaks
 */
 
 /* --------------------------------
@@ -17,13 +18,17 @@
   --bubble-user: #d1e7dd;      /* soft green */
   --bubble-user-text:#0f5132;
   --bubble-bot: #f7f7f7;       /* light gray */
+
   --accent: #FFA100;           /* brand accent (chips/submit) */
   --accent-2: #0f766e;         /* teal (modal CTA) */
   --accent-3: #ffc107;         /* CTA chip bg */
+
   --border: #e5e7eb;
 
   --surface: #ffffff;
   --surface-2: #f5f7f9;
+
+  --ring: rgba(255,161,0,.35);
 
   --shadow-sm: 0 2px 10px rgba(0,0,0,.04);
   --shadow-md: 0 6px 18px rgba(0,0,0,.08);
@@ -47,6 +52,13 @@ body{
   background-repeat:no-repeat;
   background-position: center left;
   background-size: 180px;
+}
+a{ color:#0f4c81; text-decoration:none }
+a:hover{ text-decoration:underline }
+
+/* Reduce motion if user prefers */
+@media (prefers-reduced-motion:reduce){
+  *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important }
 }
 
 /* --------------------------------
@@ -98,9 +110,15 @@ body{
 .chatbot-header{
   display:flex;
   align-items:center;
+  justify-content:space-between;
   gap:.75rem;
   margin-bottom:1rem;
+  padding:10px 12px;
+  border-bottom:1px solid var(--border);
+  background:#fff;
+  position:sticky; top:0; z-index:2;
 }
+.brand-left{ display:flex; align-items:center; gap:10px }
 .chatbot-logo{ height:32px; width:auto }
 .chatbot-header h1{
   font-size:22px; margin:0; font-weight:700; color:#0f172a;
@@ -120,11 +138,15 @@ body{
   scroll-behavior:smooth;
 }
 
+/* perf helper (used on container) */
+.chat-scroll *{ content-visibility:auto; contain-intrinsic-size: 0 42px }
+
 /* nicer scrollbars (supporting browsers) */
 #chatbot-log::-webkit-scrollbar{ width:10px }
 #chatbot-log::-webkit-scrollbar-thumb{ background:#d1d5db; border-radius:999px }
 #chatbot-log::-webkit-scrollbar-track{ background:#f9fafb }
 
+/* messages */
 .chatbot-message{
   padding:10px 15px;
   margin:8px 0;
@@ -134,9 +156,6 @@ body{
   word-wrap:break-word;
   animation: fadeIn .2s ease-in-out;
   transition: all .25s ease;
-  /* Perf for long conversations */
-  content-visibility:auto;
-  contain-intrinsic-size: 0 42px;
 }
 .user-message{
   background: var(--bubble-user);
@@ -182,7 +201,7 @@ input[type="text"]:focus,
 input[type="email"]:focus,
 input[type="tel"]:focus{
   outline:none; border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(255,161,0,.18);
+  box-shadow: 0 0 0 3px var(--ring);
 }
 button[type="submit"]{
   background: var(--accent);
@@ -192,8 +211,14 @@ button[type="submit"]{
   border-radius:8px;
   cursor:pointer;
   font-size:1.05rem;
+  line-height:1;
+  height:42px;
 }
 button[type="submit"]:hover{ opacity:.92 }
+button[type="submit"]:focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
 
 /* Ensure main chat input visible */
 #chatbot-form{ display:flex; gap:8px; align-items:center }
@@ -211,6 +236,10 @@ button[type="submit"]:hover{ opacity:.92 }
   border-radius:6px;
   background:#fff; color:#0f172a;
   font-size:1rem;
+}
+.language-switcher select:focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
 }
 
 /* --------------------------------
@@ -243,6 +272,9 @@ button[type="submit"]:hover{ opacity:.92 }
   transform: translateX(5px);
   box-shadow: var(--shadow-md);
 }
+.product-button:focus-visible{
+  outline:3px solid var(--ring);
+}
 .product-button.selected{ outline:3px solid rgba(255,161,0,.3) }
 
 /* CTA anchor chips from bot replies */
@@ -254,6 +286,7 @@ button[type="submit"]:hover{ opacity:.92 }
   transition: background .25s ease, transform .15s ease;
 }
 .cta-button:hover{ background:#ffe08a; transform: translateY(-1px) }
+.cta-button:focus-visible{ outline:3px solid var(--ring) }
 
 /* --------------------------------
    PLANVILLE ADD-ON (hero balloon)
@@ -284,9 +317,12 @@ button[type="submit"]:hover{ opacity:.92 }
 .quick-group{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
 .quick-btn{
   padding:8px 12px;border-radius:999px;border:1px solid var(--border);
-  background:#fff; cursor:pointer
+  background:#fff; cursor:pointer; line-height:1;
+  transition: background .15s ease, transform .12s ease;
 }
 .quick-btn:hover{ background:#f1f5f9 }
+.quick-btn:active{ transform: translateY(1px) }
+.quick-btn:focus-visible{ outline:3px solid var(--ring) }
 
 .pv-card-grid{
   display:grid;
@@ -301,6 +337,7 @@ button[type="submit"]:hover{ opacity:.92 }
   transition:transform .12s ease, box-shadow .12s ease, background .2s ease;
 }
 .pv-card:hover{ transform:translateY(-2px); box-shadow: var(--shadow-md) }
+.pv-card:focus-visible{ outline:3px solid var(--ring) }
 .pv-card__emoji{ font-size:20px; line-height:1; opacity:.9 }
 .pv-card__label{ font-weight:600; color:#0f172a }
 
@@ -332,6 +369,10 @@ button[type="submit"]:hover{ opacity:.92 }
   border:1px solid var(--border);
   background:#fff; color:#0f172a;
 }
+.text-input:focus{
+  outline:none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--ring);
+}
 
 /* --------------------------------
    ACCESSIBILITY UTILS
@@ -362,6 +403,7 @@ button[type="submit"]:hover{ opacity:.92 }
   z-index: 10000;
 }
 .pv-chat-btn:hover{ opacity:.95 }
+.pv-chat-btn:focus-visible{ outline:3px solid var(--ring) }
 .pv-chat-avatar{ display:block; border-radius:999px }
 .pv-chat-label{ font-weight:700; font-size:14px }
 
