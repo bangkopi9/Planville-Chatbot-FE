@@ -1,11 +1,11 @@
-/* === PLANVILLE CHATBOT — LIGHT-ONLY (2025-09-22) ===
-   - Streaming cepat (NDJSON) + abort on new input
-   - Tanpa cookie banner DI DALAM chatbot
-   - Tanpa rating 👍👎
-   - Popup modal universal (desktop & mobile)
-   - Full product funnels: pv, heatpump, aircon, roof, tenant, window
-   - Auto-greeting + FAQ + opsi produk
-   - Guardrails aman (opsional)
+<script>
+/* === PLANVILLE CHATBOT — LIGHT-ONLY (2025-09-22, full update) ===
+   - Fast streaming (NDJSON) with abort on new input
+   - No in-widget cookie banner / no 👍👎
+   - Universal popup modal (desktop & mobile)
+   - Funnels: pv, heatpump, aircon, roof, tenant, window
+   - Auto-greeting + FAQ + product options
+   - Guardrails compatible (optional) + robust fallbacks
 */
 
 (function(){
@@ -30,7 +30,7 @@
   }
 
   /* ---------------------------
-     Streaming util (NDJSON/SSE) — embedded
+     Streaming util (NDJSON)
   ----------------------------*/
   let __currentController = null;
   let __currentEventSource = null;
@@ -42,7 +42,7 @@
     __currentEventSource = null;
   }
 
-  // Back-compat signature: askAIStream({ question, lang, signal, onDelta, onDone })
+  // askAIStream({ question, lang, signal, onDelta, onDone })
   async function askAIStream({ question, lang, signal, onDelta, onDone }){
     abortCurrentStream();
 
@@ -62,6 +62,8 @@
     });
 
     if (!res.ok) throw new Error("Stream " + res.status);
+
+    // If not a stream, just return text
     if (!res.body || !res.body.getReader){
       const txt = await res.text();
       onDelta?.(txt, txt);
@@ -80,7 +82,7 @@
       if (done) break;
       buf += decoder.decode(value, { stream:true });
 
-      // NDJSON flush per-baris; jika bukan NDJSON, tetap kirim sebagai teks apa adanya
+      // NDJSON per line; if not JSON, forward as-is
       let idx;
       while ((idx = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, idx).trim();
@@ -149,24 +151,24 @@
   }
   function _allowAnalytics(){ return !!_getConsentState().analytics; }
   function track(eventName, props={}, { essential=false } = {}){
-    if (typeof window.trackFE === "function"){
-      return window.trackFE(eventName, props, { essential });
-    }
-    if (!essential && !_allowAnalytics()) return;
     try{
+      if (typeof window.trackFE === "function"){
+        window.trackFE(eventName, props, { essential });
+        return;
+      }
+      if (!essential && !_allowAnalytics()) return;
       window.dataLayer = window.dataLayer || [];
       const variant = localStorage.getItem("ab_variant") || "A";
       window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
-    }catch(_){}
-    try{
+      // lightweight backend track (best-effort)
       fetch(_api("/track"), {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
         body: JSON.stringify({
           event: eventName,
-          props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props)
+          props: Object.assign({ variant }, props)
         })
-      });
+      }).catch(()=>{});
     }catch(_){}
   }
 
@@ -238,15 +240,25 @@
   };
 
   /* ---------------------------
-     Element selectors
+     Element selectors (+ guards)
   ----------------------------*/
   const chatLog      = document.getElementById("chatbot-log");
   const form         = document.getElementById("chatbot-form");
   const input        = document.getElementById("chatbot-input");
-  const typingBubble = document.getElementById("typing-bubble");
+  let typingBubble   = document.getElementById("typing-bubble");
   const langSwitcher = document.getElementById("langSwitcher");
   const pvHero       = document.querySelector(".pv-hero");
   const pvBalloon    = document.querySelector(".pv-balloon span");
+
+  // Create a hidden typing bubble if missing (prevents NPEs)
+  if (!typingBubble && chatLog){
+    typingBubble = document.createElement("div");
+    typingBubble.id = "typing-bubble";
+    typingBubble.className = "typing-bubble bot-message chatbot-message";
+    typingBubble.style.display = "none";
+    typingBubble.textContent = "…";
+    chatLog.appendChild(typingBubble);
+  }
 
   let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
   let chatStarted = false;
@@ -280,22 +292,21 @@
     const selectedLang = localStorage.getItem("selectedLang") || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
     if (langSwitcher) langSwitcher.value = selectedLang;
 
+    // remove any old hero balloon fragment (defensive)
     const oldBalloon = document.querySelector(".pv-balloon");
-    if (oldBalloon) oldBalloon.remove();
-    if (pvBalloon) pvBalloon.textContent = I18N.robotBalloon[selectedLang];
+    if (oldBalloon && oldBalloon.parentNode) oldBalloon.remove();
+    if (pvBalloon && I18N.robotBalloon[selectedLang]) pvBalloon.textContent = I18N.robotBalloon[selectedLang];
 
     updateFAQ(selectedLang);
     updateHeaderOnly(selectedLang);
 
-    // ❌ Cookie banner DI DALAM chatbot dihapus (dikelola CMP global di luar widget)
-    // (blok sebelumnya yang memunculkan #cookie-banner dihapus)
-
+    // show chat area
     showChatArea();
     chatStarted = true;
 
-    // Auto-greeting sekali, kalau log masih kosong
-    const hasContent  = chatLog && chatLog.children && chatLog.children.length > 0;
-    const hasProducts = document.getElementById("product-options-block");
+    // Auto-greeting only when log empty and no product options yet
+    const hasContent  = !!(chatLog && chatLog.children && chatLog.children.length > 0);
+    const hasProducts = !!document.getElementById("product-options-block");
     if (!hasContent && !hasProducts){
       startGreetingFlow(true);
     }
@@ -318,25 +329,25 @@
     langSwitcher.addEventListener("change", function(){
       const lang = langSwitcher.value;
       localStorage.setItem("selectedLang", lang);
-      if (pvBalloon) pvBalloon.textContent = I18N.robotBalloon[lang];
+      if (pvBalloon && I18N.robotBalloon[lang]) pvBalloon.textContent = I18N.robotBalloon[lang];
       updateFAQ(lang);
       if (chatStarted) updateUITexts(lang); else updateHeaderOnly(lang);
       track("language_switch", { lang: lang });
     });
   }
 
-  // Submit handler (streaming cepat + abort)
+  // Submit handler (streaming + abort)
   if (form){
     form.addEventListener("submit", async function(e){
       e.preventDefault();
       __lastOrigin = __lastOrigin || "chat";
       if (!chatStarted){ chatStarted = true; showChatArea(); }
 
+      if (!input) return; // nothing to read
       const question = (input.value || "").trim();
       const selectedLang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
       if (!question) return;
 
-      // Abort stream sebelumnya bila ada
       abortCurrentStream();
 
       appendMessage(escapeHTML(question), "user");
@@ -344,7 +355,7 @@
       input.value = "";
       if (typingBubble) typingBubble.style.display = "block";
 
-      // Intent sederhana
+      // quick intents
       if (detectIntent(question)){
         if (typingBubble) typingBubble.style.display = "none";
         const inFunnel = !!(window.Funnel && window.Funnel.state && window.Funnel.state.product);
@@ -357,7 +368,7 @@
       const botLive = appendMessage("...", "bot");
 
       try{
-        // Guardrails (opsional)
+        // Guardrails (optional)
         if (window.AIGuard && typeof window.AIGuard.ask === "function"){
           const ai = await window.AIGuard.ask(question, selectedLang);
           if (ai && ai.stop){
@@ -370,9 +381,7 @@
           if (ai && ai.text){
             finalReply = String(ai.text).trim();
             if (typingBubble) typingBubble.style.display = "none";
-            if (botLive){
-              botLive.innerHTML = finalReply;
-            }
+            if (botLive) botLive.innerHTML = finalReply;
             saveToHistory("bot", finalReply);
           }
         }
@@ -390,7 +399,7 @@
               if (!gotFirst && typingBubble) { typingBubble.style.display = "none"; gotFirst = true; }
               if (botLive){
                 botLive.innerHTML = acc;
-                chatLog.scrollTop = chatLog.scrollHeight;
+                if (chatLog) chatLog.scrollTop = chatLog.scrollHeight;
               }
             },
             onDone: function(full){
@@ -409,21 +418,15 @@
             headers:{ "Content-Type":"application/json" },
             body: JSON.stringify({ message: question, lang: selectedLang })
           });
-          const data = await res.json();
-          const replyRaw = data.answer !== undefined ? data.answer : data.reply;
+          const data = await res.json().catch(()=> ({}));
+          const replyRaw = data && (data.answer ?? data.reply);
           finalReply = (typeof replyRaw === "string" ? replyRaw.trim() : "") || I18N.unsure[selectedLang];
-          if (botLive){
-            botLive.innerHTML = finalReply;
-          }else{
-            appendMessage(finalReply, "bot");
-          }
+          if (botLive) botLive.innerHTML = finalReply;
+          else appendMessage(finalReply, "bot");
           saveToHistory("bot", finalReply);
         }catch(_){
-          if (botLive){
-            botLive.innerHTML = "Error while connecting to the API.";
-          }else{
-            appendMessage("Error while connecting to the API.", "bot");
-          }
+          if (botLive) botLive.innerHTML = "Error while connecting to the API.";
+          else appendMessage("Error while connecting to the API.", "bot");
         }finally{
           if (typingBubble) typingBubble.style.display = "none";
         }
@@ -454,7 +457,7 @@
   }
   function updateHeaderOnly(lang){
     const h = document.querySelector(".chatbot-header h1");
-    if (h) h.innerText = I18N.header[lang];
+    if (h && I18N.header[lang]) h.innerText = I18N.header[lang];
   }
 
   /* ---------------------------
@@ -466,21 +469,19 @@
     if (!chatLog) return null;
     const msgDiv = document.createElement("div");
     msgDiv.className = "chatbot-message " + (sender === "user" ? "user-message" : "bot-message");
-    // Terima HTML untuk bot (mis. summary bubble), tapi escape untuk user
-    if (sender === "user") msgDiv.textContent = String(msg);
-    else msgDiv.innerHTML = msg;
-
-    // ❌ Tidak ada thumbs/rating UI lagi
+    if (sender === "user") msgDiv.textContent = String(msg); else msgDiv.innerHTML = msg;
     chatLog.appendChild(msgDiv);
     if (scroll === undefined || scroll) chatLog.scrollTop = chatLog.scrollHeight;
     return msgDiv;
   }
   function saveToHistory(sender, message){
-    chatHistory.push({ sender: sender, message: message });
-    localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
+    try{
+      chatHistory.push({ sender: sender, message: message });
+      localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
+    }catch(_){}
   }
   function resetChat(){
-    localStorage.removeItem("chatHistory");
+    try{ localStorage.removeItem("chatHistory"); }catch(_){}
     chatHistory = [];
     if (chatLog) chatLog.innerHTML = "";
     const productBlock = document.getElementById("product-options-block");
@@ -501,8 +502,13 @@
       li.innerText = txt;
       li.addEventListener("click", function(){
         __lastOrigin = "faq";
-        input.value = txt;
-        form.dispatchEvent(new Event("submit"));
+        if (input) input.value = txt;
+        if (form){
+          form.dispatchEvent(new Event("submit"));
+        }else{
+          // fallback: just echo and trigger intent/system response
+          appendMessage(escapeHTML(txt), "user");
+        }
         track("faq_click", { text: txt });
       });
       list.appendChild(li);
@@ -510,8 +516,8 @@
   }
   function sendFAQ(text){
     __lastOrigin = "faq";
-    input.value = text;
-    form.dispatchEvent(new Event("submit"));
+    if (input) input.value = text;
+    if (form) form.dispatchEvent(new Event("submit"));
     track("faq_click", { text: text });
   }
 
@@ -520,7 +526,7 @@
   ----------------------------*/
   function updateUITexts(lang){
     const h = document.querySelector(".chatbot-header h1");
-    if (h) h.innerText = I18N.header[lang];
+    if (h && I18N.header[lang]) h.innerText = I18N.header[lang];
     resetChat();
     appendMessage(I18N.greeting[lang], "bot");
     showProductOptions();
@@ -662,6 +668,7 @@
       wrap.remove();
     };
     if (chatLog){ chatLog.appendChild(wrap); chatLog.scrollTop = chatLog.scrollHeight; }
+    setTimeout(()=>{ try{ inp.focus(); }catch(_){}} , 0);
   }
 
   function askContact(){
@@ -1178,3 +1185,4 @@
   const AB = { variant: localStorage.getItem("ab_variant") || (Math.random() < 0.5 ? "A":"B") };
   localStorage.setItem("ab_variant", AB.variant);
 })();
+</script>
