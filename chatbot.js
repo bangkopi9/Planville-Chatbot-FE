@@ -1,6 +1,6 @@
 <script>
-/* === PLANVILLE CHATBOT — LIGHT-ONLY (2025-09-22, full update) ===
-   - Fast streaming (NDJSON) with abort on new input
+/* === PLANVILLE CHATBOT — LIGHT-ONLY (2025-09-23, full update) ===
+   - Fast streaming (NDJSON) with watchdog heartbeat + auto-retry (anti "connection lost")
    - No in-widget cookie banner / no 👍👎
    - Universal popup modal (desktop & mobile)
    - Funnels: pv, heatpump, aircon, roof, tenant, window
@@ -43,85 +43,132 @@
   }
 
   // askAIStream({ question, lang, signal, onDelta, onDone })
+  // Watchdog heartbeat + light auto-retry → anti "Network connection lost"
   async function askAIStream({ question, lang, signal, onDelta, onDone }){
     abortCurrentStream();
 
-    const controller = new AbortController();
-    __currentController = controller;
-    if (signal) {
-      if (signal.aborted) controller.abort();
-      else signal.addEventListener("abort", () => controller.abort(), { once:true });
-    }
+    let attempts = 0;
+    const maxAttempts =
+      (window.CONFIG && CONFIG.RETRY && Number(CONFIG.RETRY.MAX_TRIES)) || 2;
 
-    const res = await fetch(_api("/chat/stream"), {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ message: question, lang }),
-      signal: controller.signal,
-      keepalive: true
-    });
+    async function once(){
+      const controller = new AbortController();
+      __currentController = controller;
 
-    if (!res.ok) throw new Error("Stream " + res.status);
+      if (signal){
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener("abort", () => controller.abort(), { once:true });
+      }
 
-    // If not a stream, just return text
-    if (!res.body || !res.body.getReader){
-      const txt = await res.text();
-      onDelta?.(txt, txt);
-      onDone?.(txt);
-      __currentController = null;
-      return txt;
-    }
+      // Hard-timeout to prevent hanging requests
+      const timeoutMs =
+        (window.CONFIG && Number(CONFIG.REQUEST_TIMEOUT_MS)) || 20000;
+      const to = setTimeout(() => { try { controller.abort(); } catch {} }, timeoutMs);
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let buf = "";
-    let acc = "";
+      let res;
+      try{
+        res = await fetch(_api("/chat/stream"), {
+          method:"POST",
+          mode:"cors",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ message: question, lang }),
+          signal: controller.signal,
+          keepalive: true
+        });
+      } finally {
+        clearTimeout(to);
+      }
 
-    for(;;){
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream:true });
+      if (!res.ok) throw new Error("Stream " + res.status);
 
-      // NDJSON per line; if not JSON, forward as-is
-      let idx;
-      while ((idx = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, idx).trim();
-        buf = buf.slice(idx + 1);
-        if (!line) continue;
+      // Not a stream? just return text
+      if (!res.body || !res.body.getReader){
+        const txt = await res.text();
+        onDelta?.(txt, txt);
+        onDone?.(txt);
+        __currentController = null;
+        return txt;
+      }
 
-        let piece = "";
-        try {
-          const obj = JSON.parse(line);
-          piece = (obj.delta ?? obj.text ?? "");
-        } catch {
-          piece = line;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buf = "";
+      let acc = "";
+      let lastChunkAt = Date.now();
+
+      // Heartbeat watchdog: if 2× interval without data → abort (trigger retry)
+      const hbMs = (window.CONFIG && Number(CONFIG.SSE_HEARTBEAT_MS)) || 15000;
+      const watchdog = setInterval(() => {
+        if (Date.now() - lastChunkAt > hbMs * 2){
+          try { controller.abort(); } catch {}
         }
-        if (piece) {
-          acc += piece;
-          onDelta?.(piece, acc);
+      }, hbMs);
+
+      try{
+        for(;;){
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          lastChunkAt = Date.now();
+          buf += decoder.decode(value, { stream:true });
+
+          // NDJSON per line; if not JSON, forward as-is
+          let idx;
+          while ((idx = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, idx).trim();
+            buf = buf.slice(idx + 1);
+            if (!line) continue;
+
+            let piece = "";
+            try {
+              const obj = JSON.parse(line);
+              piece = (obj.delta ?? obj.text ?? "");
+            } catch {
+              piece = line;
+            }
+            if (piece) {
+              acc += piece;
+              onDelta?.(piece, acc);
+            }
+          }
         }
+
+        // tail
+        const tail = buf.trim();
+        if (tail) {
+          let piece = "";
+          try {
+            const obj = JSON.parse(tail);
+            piece = (obj.delta ?? obj.text ?? "");
+          } catch {
+            piece = tail;
+          }
+          if (piece) {
+            acc += piece;
+            onDelta?.(piece, acc);
+          }
+        }
+
+        onDone?.(acc);
+        __currentController = null;
+        return acc;
+      } finally {
+        clearInterval(watchdog);
       }
     }
 
-    // tail
-    const tail = buf.trim();
-    if (tail) {
-      let piece = "";
+    // Light retry with simple backoff
+    for (;;) {
       try {
-        const obj = JSON.parse(tail);
-        piece = (obj.delta ?? obj.text ?? "");
-      } catch {
-        piece = tail;
-      }
-      if (piece) {
-        acc += piece;
-        onDelta?.(piece, acc);
+        return await once();
+      } catch (e) {
+        attempts += 1;
+        if (attempts > maxAttempts) throw e;
+        const delay =
+          (window.CONFIG && CONFIG.RETRY && Number(CONFIG.RETRY.BASE_DELAY_MS)) || 800;
+        await new Promise(r => setTimeout(r, delay * attempts));
       }
     }
-
-    onDone?.(acc);
-    __currentController = null;
-    return acc;
   }
 
   async function withRetry(fn, { retries=1, baseDelay=600 } = {}){
@@ -309,6 +356,20 @@
     const hasProducts = !!document.getElementById("product-options-block");
     if (!hasContent && !hasProducts){
       startGreetingFlow(true);
+    }
+  });
+
+  // Reconnect helpers (UX anti-blank)
+  window.addEventListener("online", () => {
+    // optional: show "Back online" toast/snackbar
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      const tb = document.getElementById("typing-bubble");
+      if (tb && tb.style.display !== "none") {
+        // Offer a CTA instead of hanging bubble
+        maybeOfferStartCTA((langSwitcher && langSwitcher.value) || "de");
+      }
     }
   });
 
