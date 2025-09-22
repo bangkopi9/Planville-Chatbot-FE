@@ -8,7 +8,7 @@
   window.CONFIG = {
     // ===== Backend =====
     /** HARUS http/https TANPA slash di akhir */
-    BASE_API_URL: "https://web-production-53b70.up.railway.app",
+    BASE_API_URL: "web-production-352d9.up.railway.app",
 
     // ===== Branding & UI =====
     CHATBOT_NAME: "Wattson",                // Nama di header & trigger
