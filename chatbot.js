@@ -1,4 +1,4 @@
-<script>
+
 /* === PLANVILLE CHATBOT — LIGHT-ONLY (2025-09-23, full update) ===
    - Fast streaming (NDJSON) + watchdog heartbeat + auto-retry
    - No in-widget cookie banner / no 👍👎
@@ -1241,4 +1241,4 @@
   localStorage.setItem("ab_variant", AB.variant);
 
 })(); 
-</script>
+
