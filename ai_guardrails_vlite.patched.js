@@ -1,11 +1,12 @@
 /**
- * ai_guardrails_vlite.patched.js (enhanced)
- * - Ensures all relative API calls go to CONFIG.BASE_API_URL.
- * - Rewrites both "/chat" and "chat" (no-leading-slash) styles.
- * - Optional allow/deny lists via CONFIG.API_REWRITE_ALLOW / CONFIG.API_REWRITE_DENY (arrays of regex strings).
- * - Safe Request cloning; preserves headers/credentials/signal.
- * - EventSource patched for SSE.
- * - Loads original ai_guardrails_vlite.js AFTER patching (sync order).
+ * ai_guardrails_vlite.patched.js — WATTSON (2025-09-23)
+ * - Rewrites relative API calls to CONFIG.BASE_API_URL
+ * - Supports both "/chat" and "chat" styles
+ * - Optional allow/deny lists via CONFIG.API_REWRITE_ALLOW / CONFIG.API_REWRITE_DENY
+ * - Safe Request cloning; preserves headers/credentials/signal
+ * - EventSource patched for SSE
+ * - Loads original ai_guardrails_vlite.js AFTER patching (sync order)
+ * - Provides a minimal AIGuard shim if original fails
  */
 
 (function () {
@@ -108,7 +109,6 @@
       var headers = (resource && resource.headers) || (init && init.headers) || undefined;
       var body = (resource && resource.body) || (init && init.body) || undefined;
 
-      // If it's a Request, headers might be a Headers object; keep it as-is.
       var opts = {
         method: method,
         headers: headers,
@@ -173,17 +173,67 @@
   } catch (_) {}
 
   // ---------- Load original (after patch) ----------
+  var __loadedOriginal = false;
   try {
     var s = document.createElement("script");
     s.src = "ai_guardrails_vlite.js";
     s.async = false; // keep order
+    s.onload = function(){ __loadedOriginal = true; };
+    s.onerror = function(){
+      // If original fails, keep shim below
+      __loadedOriginal = false;
+    };
     var here = document.currentScript;
     if (here && here.parentNode) {
       here.parentNode.insertBefore(s, here);
     } else {
       document.head.appendChild(s);
     }
-  } catch (_) {
-    // even if this fails, fetch/EventSource patches are active
-  }
+  } catch (_) {}
+
+  // ---------- Minimal guardrails shim (fallback, no UI side-effects) ----------
+  // This shim is active immediately; if the original later overwrites window.AIGuard, that's fine.
+  (function ensureAIGuardShim(){
+    if (window.AIGuard && typeof window.AIGuard.ask === "function") return;
+
+    // Lightweight denylist; fokus ke konten sensitif umum.
+    var BLOCK_PATTERNS = [
+      // violence/illegal
+      /\b(bombe|explosiv|spreng|explosive|bomb|weapon|senjata|merakit)\b/i,
+      // hate/extremism
+      /\b(nazi|kkk|terror|genocide|ethnic cleansing|supremacy)\b/i,
+      // medical/legal advice (hard claims)
+      /\b(diagnose|rezept|resept|prescription|verschreiben|obat keras|legal advice)\b/i,
+      // explicit PII seek
+      /\b(pass(?:port)? number|social security|kartu keluarga|nik|credit card|cvv)\b/i
+    ];
+
+    function violates(msg){
+      try{
+        var m = String(msg || "");
+        for (var i=0;i<BLOCK_PATTERNS.length;i++){
+          if (BLOCK_PATTERNS[i].test(m)) return true;
+        }
+        return false;
+      }catch(_){ return false; }
+    }
+
+    async function ask(question, lang){
+      var q = String(question||"");
+      if (violates(q)){
+        var text = (lang==="de")
+          ? "Dabei kann ich nicht helfen. Ich unterstütze dich gern bei PV, Wärmepumpe, Dach, Fenster, Klimaanlage oder Mieterstrom."
+          : "I can’t help with that. I’m happy to assist with PV, heat pumps, roofing, windows, air conditioning, or tenant power.";
+        // stop = jangan teruskan ke backend
+        return { stop:true, text:text };
+      }
+      // Pass-through (biarkan backend menjawab)
+      return { stop:false };
+    }
+
+    function maybeContinueFunnel(){ /* no-op, kept for compatibility */ }
+
+    window.AIGuard = { ask, maybeContinueFunnel };
+  })();
+
 })();
