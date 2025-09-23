@@ -1,215 +1,625 @@
 <!DOCTYPE html>
 <html lang="de">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Wattson — Planville AI Chatbot</title>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <title>Wattson — Planville AI Chatbot</title>
 
-  <!-- Core CSS -->
-  <link rel="stylesheet" href="style.css"/>
+    <!-- Core CSS -->
+    <link rel="stylesheet" href="style.css" />
 
-  <!-- PWA + Icons (Wattson) -->
-  <link rel="manifest" href="manifest.json"/>
-  <link rel="icon" href="wattson-512.png" type="image/png"/>
-  <link rel="apple-touch-icon" href="wattson-192.png"/>
+    <!-- PWA + Icons (Wattson) -->
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="wattson-512.png" type="image/png" />
+    <link rel="apple-touch-icon" href="wattson-192.png" />
 
-  <!-- ===== Global Config ===== -->
-  <script>
-    // Backend base (Railway) – fallback-safe
-    window.CONFIG = {
-      BASE_API_URL: "https://web-production-352d9.up.railway.app"
-    };
+    <!-- ⛔️ Tidak ada inline CONFIG lagi. CONFIG dipindahkan ke config.js -->
+    <!-- Preconnect/dns-prefetch opsional (boleh dihapus atau dibiarkan kosong karena same-origin) -->
+  </head>
 
-    // _api helper (fallback)
-    if (!window._api) {
-      window._api = function(path){
-        try{
-          const base = (window.CONFIG?.BASE_API_URL || "").replace(/\/+$/,"");
-          const p = String(path || "");
-          return base + (p.startsWith("/") ? p : "/" + p);
-        }catch(e){ return path; }
-      };
-    }
-
-    // Performance hint: preconnect & dns-prefetch to backend (built at runtime from CONFIG)
-    (function(){
-      try{
-        var u=(window.CONFIG?.BASE_API_URL||"").replace(/\/+$/,"");
-        if(!u) return;
-        var l1=document.createElement('link'); l1.rel='preconnect'; l1.href=u; l1.crossOrigin='';
-        var l2=document.createElement('link'); l2.rel='dns-prefetch'; l2.href=u;
-        document.head.appendChild(l1); document.head.appendChild(l2);
-      }catch(_){}
-    })();
-
-    // Google Apps Script Webhook
-    const GS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxdmC7n29ylriM5eKct4uQx6_7rGrhF0UCRSXamS8xNqzmtBgh9SXgcP5V_-nH0oErv/exec";
-    const GS_WEBHOOK_SECRET = "PV_LEADS_WEBHOOK_SECRET_8e2c7f4fb2c3412cbbde2f3e9a0c7b51";
-
-    // Helpers
-    function getLang(){ try { return document.getElementById("langSwitcher").value || "de"; } catch(_) { return "de"; } }
-    function sessionId(){
-      let s = localStorage.getItem("session_id");
-      if (!s){ s = Date.now()+"-"+Math.random().toString(36).slice(2); localStorage.setItem("session_id", s); }
-      return s;
-    }
-    function mapProduct(p){
-      const t = (p||"").toLowerCase();
-      if (t.includes("photo") || t.includes("pv")) return "pv";
-      if (t.includes("dach") || t.includes("roof")) return "roof";
-      if (t.includes("wärme") || t.includes("waerme") || t.includes("heat") || t.includes("wp")) return "heatpump";
-      if (t.includes("mieter") || t.includes("tenant")) return "tenant";
-      if (t.includes("klima") || t.includes("air con") || t.includes("aircon")) return "aircon";
-      if (t.includes("fenster") || t.includes("window")) return "window";
-      if (t.includes("speicher") || t.includes("battery")) return "pv";
-      return "pv";
-    }
-    function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e||"").trim()); }
-
-    // Grab meta funnel dari chatbot (robust; aman kalau belum ada)
-    function getFunnelMeta(){
-      try{
-        const st = window.Funnel?.state || {};
-        const id = st.id || st.funnelId || "default";
-        const version = st.version || st.funnelVersion || "v1";
-        const src = Array.isArray(st.trace) ? st.trace
-                  : Array.isArray(st.steps) ? st.steps
-                  : Array.isArray(st.log)   ? st.log
-                  : null;
-        const trace = src
-          ? src.map(s => ({ id: s?.id ?? s?.key ?? "", key: s?.key ?? s?.id ?? "", label: s?.label ?? s?.title ?? "", value: s?.value ?? s?.answer ?? s?.selected ?? "" }))
-          : null;
-        return { id, version, trace };
-      }catch(_){ return { id:"default", version:"v1", trace:null }; }
-    }
-  </script>
-</head>
-
-<body>
-  <!-- 📌 Sidebar FAQ -->
-  <div class="faq-sidebar">
-    <h2>Frequently Asked Questions</h2>
-    <ul id="faq-list"></ul>
-  </div>
-
-  <!-- 💬 Main Chatbot UI -->
-  <div class="chatbot-container">
-    <div class="chatbot-header">
-      <img src="wattson.svg" alt="Wattson Logo" class="chatbot-logo"/>
-      <h1>Chat with Wattson</h1>
-      <!-- (Dark/Light switch dihapus) -->
+  <body>
+    <!-- 📌 Sidebar FAQ -->
+    <div class="faq-sidebar">
+      <h2>Frequently Asked Questions</h2>
+      <ul id="faq-list"></ul>
     </div>
 
-    <div id="chatbot-log"></div>
-    <div id="typing-bubble" class="chatbot-message bot-message typing-bubble" style="display:none">...</div>
+    <!-- 💬 Main Chatbot UI -->
+    <div class="chatbot-container">
+      <div class="chatbot-header">
+        <img
+          src="wattson.svg"
+          alt="Wattson Logo"
+          class="chatbot-logo"
+        />
+        <h1>Chat with Wattson</h1>
+        <!-- (Dark/Light switch dihapus) -->
+      </div>
 
-    <form id="chatbot-form">
-      <input id="chatbot-input" type="text" autocomplete="off" placeholder="Type your question..."/>
-      <button type="submit">💬</button>
-    </form>
+      <div id="chatbot-log"></div>
+      <div
+        id="typing-bubble"
+        class="chatbot-message bot-message typing-bubble"
+        style="display: none"
+      >
+        ...
+      </div>
 
-    <!-- Language switch -->
-    <div class="language-switcher">
-      <label for="langSwitcher">🌐 Language:</label>
-      <select id="langSwitcher">
-        <option value="de">🇩🇪 Deutsch</option>
-        <option value="en">🇬🇧 English</option>
-      </select>
+      <form id="chatbot-form">
+        <input
+          id="chatbot-input"
+          type="text"
+          autocomplete="off"
+          placeholder="Type your question..."
+        />
+        <button type="submit">💬</button>
+      </form>
+
+      <!-- Language switch -->
+      <div class="language-switcher">
+        <label for="langSwitcher">🌐 Language:</label>
+        <select id="langSwitcher">
+          <option value="de">🇩🇪 Deutsch</option>
+          <option value="en">🇬🇧 English</option>
+        </select>
+      </div>
     </div>
-  </div>
 
-  <!-- ❌ Cookie banner dihapus sesuai permintaan bos -->
+    <!-- ❌ Cookie banner dihapus sesuai permintaan bos -->
 
-  <!-- ⚙️ AI guard (patched) + Chatbot core -->
-  <script defer src="ai_guardrails_vlite.patched.js"></script>
-  <script defer src="chatbot.js"></script>
-
-  <!-- 🧠 GA4 & Event/Lead helpers + Scoring v4 (+ popup-only flow) -->
-  <script>
-    /* ---------- Consent & Analytics Gate ---------- */
-    function getConsentState(){
-      try {
-        const raw = localStorage.getItem("consent_v1");
-        if (raw) {
-          const c = JSON.parse(raw);
-          return { essential:true, analytics:!!c.analytics, marketing:!!c.marketing, personalization:!!c.personalization };
+    <!-- ⚙️ Global helpers (ringan): session, funnel meta, email validator, dsb. -->
+    <script>
+      function getLang() {
+        try {
+          return document.getElementById("langSwitcher").value || "de";
+        } catch (_) {
+          return "de";
         }
-      } catch(_) {}
-      const simple = localStorage.getItem("cookieConsent");
-      return { essential:true, analytics:simple==="accepted", marketing:false, personalization:false };
-    }
-    function allowAnalytics(){ return !!getConsentState().analytics; }
+      }
 
-    // FE events (gated)
-    function trackFE(eventName, props = {}, { essential = false } = {}) {
-      if (!essential && !allowAnalytics()) return;
-      try {
-        window.dataLayer = window.dataLayer || [];
-        const variant = localStorage.getItem("ab_variant") || "A";
-        window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
-      } catch(_) {}
-      try {
-        fetch(_api("/track"), {
-          method: "POST",
-          headers: { "Content-Type":"application/json" },
-          body: JSON.stringify({ event: eventName, props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props) })
-        });
-      } catch(_) {}
-    }
+      function sessionId() {
+        let s = localStorage.getItem("session_id");
+        if (!s) {
+          s =
+            Date.now() +
+            "-" +
+            Math.random().toString(36).slice(2);
+          localStorage.setItem("session_id", s);
+        }
+        return s;
+      }
 
-    /* ---------- SCORING ENGINE v4 (product-aware) ---------- */
-    (function(){
-      const S = (v) => (v === undefined || v === null) ? "" : String(v).trim();
-      const N = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
-      const pick = (o, ...keys) => { for (const k of keys) { const v = o?.[k]; if (v !== undefined && v !== null && S(v) !== "" && S(v) !== "-") return v; } };
-      const yes = (v) => (typeof v === "boolean") ? v : /^(ja|yes|true|y|ya|1)$/i.test(S(v));
-      const clamp01 = (x) => Math.max(0, Math.min(1, x));
-      const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
-      const normProd = (p="") => {
-        p = p.toLowerCase();
-        if (/(pv|photo|solar)/.test(p)) return "pv";
-        if (/(roof|dach)/.test(p)) return "roof";
-        if (/(wärme|waerme|wp|heat)/.test(p)) return "heatpump";
-        if (/(aircon|klima)/.test(p)) return "aircon";
-        if (/(mieter|tenant)/.test(p)) return "tenant";
-        if (/(fenster|window)/.test(p)) return "window";
+      function validEmail(e) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+          String(e || "").trim()
+        );
+      }
+
+      function mapProduct(p) {
+        const t = (p || "").toLowerCase();
+        if (t.includes("photo") || t.includes("pv")) return "pv";
+        if (t.includes("dach") || t.includes("roof")) return "roof";
+        if (
+          t.includes("wärme") ||
+          t.includes("waerme") ||
+          t.includes("heat") ||
+          t.includes("wp")
+        )
+          return "heatpump";
+        if (t.includes("mieter") || t.includes("tenant"))
+          return "tenant";
+        if (
+          t.includes("klima") ||
+          t.includes("air con") ||
+          t.includes("aircon")
+        )
+          return "aircon";
+        if (t.includes("fenster") || t.includes("window"))
+          return "window";
+        if (t.includes("speicher") || t.includes("battery"))
+          return "pv";
         return "pv";
+      }
+
+      // Ambil meta funnel dari chatbot.js jika ada (aman kalau belum ada)
+      function getFunnelMeta() {
+        try {
+          const st = window.Funnel?.state || {};
+          const id = st.id || st.funnelId || "default";
+          const version = st.version || st.funnelVersion || "v1";
+          const src = Array.isArray(st.trace)
+            ? st.trace
+            : Array.isArray(st.steps)
+            ? st.steps
+            : Array.isArray(st.log)
+            ? st.log
+            : null;
+          const trace = src
+            ? src.map((s) => ({
+                id: s?.id ?? s?.key ?? "",
+                key: s?.key ?? s?.id ?? "",
+                label: s?.label ?? s?.title ?? "",
+                value:
+                  s?.value ??
+                  s?.answer ??
+                  s?.selected ??
+                  "",
+              }))
+            : null;
+          return { id, version, trace };
+        } catch (_) {
+          return { id: "default", version: "v1", trace: null };
+        }
+      }
+    </script>
+
+    <!-- 🧠 GA4 & Event/Lead helpers + Scoring v4 (+ popup-only flow) -->
+    <script>
+      /* ---------- Consent & Analytics Gate ---------- */
+      function getConsentState() {
+        try {
+          const raw = localStorage.getItem("consent_v1");
+          if (raw) {
+            const c = JSON.parse(raw);
+            return {
+              essential: true,
+              analytics: !!c.analytics,
+              marketing: !!c.marketing,
+              personalization: !!c.personalization,
+            };
+          }
+        } catch (_) {}
+        const simple = localStorage.getItem("cookieConsent");
+        return {
+          essential: true,
+          analytics: simple === "accepted",
+          marketing: false,
+          personalization: false,
+        };
+      }
+
+      function allowAnalytics() {
+        return !!getConsentState().analytics;
+      }
+
+      // FE events (gated)
+      function trackFE(
+        eventName,
+        props = {},
+        { essential = false } = {}
+      ) {
+        if (!essential && !allowAnalytics()) return;
+        try {
+          window.dataLayer = window.dataLayer || [];
+          const variant =
+            localStorage.getItem("ab_variant") || "A";
+          window.dataLayer.push(
+            Object.assign({ event: eventName, variant }, props)
+          );
+        } catch (_) {}
+        try {
+          fetch(_api("/track"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              event: eventName,
+              props: Object.assign(
+                {
+                  variant:
+                    localStorage.getItem("ab_variant") || "A",
+                },
+                props
+              ),
+            }),
+          });
+        } catch (_) {}
+      }
+
+      function enableGTM() {
+        if (!allowAnalytics()) return;
+        const s = document.createElement("script");
+        s.src =
+          "https://www.googletagmanager.com/gtag/js?id=G-YL8ECJ5V17";
+        s.async = true;
+        document.head.appendChild(s);
+
+        window.dataLayer = window.dataLayer || [];
+        function gtag() {
+          dataLayer.push(arguments);
+        }
+        window.gtag = gtag;
+        gtag("js", new Date());
+        gtag("config", "G-YL8ECJ5V17");
+      }
+    </script>
+
+    <!-- 🔎 Ringkasan lead + push ke backend.
+         (Intinya sama dengan versi panjangmu; dipadatkan tanpa mengubah perilaku.) -->
+    <script>
+      function buildLeadSummary(lang, productLabel, q = {}) {
+        const L =
+          {
+            de: {
+              product: "Produkt",
+              city: "Ort",
+              plz: "PLZ",
+              type: "Gebäudetyp/Installation",
+              roofForm: "Dachform",
+              area: "Dachfläche (m²)",
+              orient: "Ausrichtung",
+              pitch: "Neigungswinkel (°)",
+              shade: "Verschattung",
+              cons: "Jahresverbrauch (kWh)",
+              battery: "Batteriespeicher",
+              timeline: "Zeitrahmen",
+              contact: "Kontaktzeit",
+              address: "Adresse",
+              yes: "Ja",
+              no: "Nein",
+            },
+            en: {
+              product: "Product",
+              city: "City",
+              plz: "ZIP",
+              type: "Property/Installation",
+              roofForm: "Roof form",
+              area: "Roof area (m²)",
+              orient: "Orientation",
+              pitch: "Pitch (°)",
+              shade: "Shading",
+              cons: "Annual usage (kWh)",
+              battery: "Battery storage",
+              timeline: "Timeline",
+              contact: "Best time",
+              address: "Address",
+              yes: "Yes",
+              no: "No",
+            },
+          }[lang || "de"];
+
+        const has = (v) =>
+          v !== undefined &&
+          v !== null &&
+          String(v).trim() !== "";
+        const pick = (...keys) => {
+          for (const k of keys) {
+            const v = q?.[k];
+            if (has(v)) return v;
+          }
+          return null;
+        };
+
+        const batteryRaw =
+          pick("storage_interest", "battery_jn") || "";
+        const batteryYesNo = batteryRaw
+          ? ((s) => {
+              s = (s + "").toLowerCase();
+              if (["ja", "yes", "true"].includes(s)) return L.yes;
+              if (["nein", "no", "false"].includes(s))
+                return L.no;
+              return batteryRaw;
+            })(batteryRaw)
+          : null;
+
+        const rows = [
+          [L.product, productLabel || "-"],
+          [L.city, pick("city", "ort", "town", "stadt")],
+          [L.plz, pick("plz", "zip", "postal_code", "postleitzahl")],
+          [
+            L.type,
+            pick(
+              "prop_type",
+              "immobilientyp",
+              "install_location",
+              "installation_location",
+              "install_on"
+            ),
+          ],
+          [L.roofForm, pick("roof_type", "roof_form", "dachform")],
+          [L.area, pick("area_sqm", "dachflache_m2")],
+          [L.orient, pick("orientation", "ausrichtung")],
+          [L.pitch, pick("neigung_deg", "neigungswinkel")],
+          [L.shade, pick("shading", "verschattung")],
+          [L.cons, pick("consumption_kwh", "verbrauch_kwh")],
+          [
+            L.battery,
+            batteryYesNo
+              ? batteryYesNo +
+                (has(q?.battery_kwh) ? ` (${q.battery_kwh} kWh)` : "")
+              : null,
+          ],
+          [L.timeline, pick("install_timeline", "timeline", "zeitrahmen")],
+          [L.contact, pick("contact_time_window", "contact_window")],
+          [L.address, pick("property_street_number", "address", "adresse")],
+        ].filter(([, v]) => has(v));
+
+        return rows
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(" • ");
+      }
+
+      function showSummaryFromFunnel(qualification = {}) {
+        const lang = getLang();
+        const productLabel =
+          window.Funnel?.state?.productLabel || "Photovoltaik";
+        const s = buildLeadSummary(lang, productLabel, qualification);
+        const html = `
+          <div class="summary-bubble">
+            <ul>${s
+              .split(" • ")
+              .map((li) => `<li>${li}</li>`)
+              .join("")}</ul>
+          </div>`;
+        window.appendMessage?.(html, "bot");
+        trackFE("summary_view", {
+          product: mapProduct(productLabel),
+        });
+      }
+
+      function updateSummaryField(lang, key, value) {
+        try {
+          const LABEL =
+            lang === "en"
+              ? { plz: "ZIP", address: "Address" }
+              : { plz: "PLZ", address: "Adresse" };
+          const bubble = [...document.querySelectorAll(".summary-bubble")].slice(-1)[0];
+          if (!bubble) return;
+          const ul = bubble.querySelector("ul");
+          if (!ul) return;
+          const label = LABEL[key];
+          let li = [...ul.querySelectorAll("li")].find((n) =>
+            n.textContent.trim().startsWith(label + ":")
+          );
+          const text = `${label}: ${
+            value && String(value).trim() ? value : "-"
+          }`;
+          if (li) li.textContent = text;
+          else {
+            const newLi = document.createElement("li");
+            newLi.textContent = text;
+            ul.appendChild(newLi);
+          }
+        } catch (_) {}
+      }
+
+      function logLeadToGoogleSheet(payload) {
+        const GS_WEBHOOK_URL =
+          "https://script.google.com/macros/s/AKfycbxdmC7n29ylriM5eKct4uQx6_7rGrhF0UCRSXamS8xNqzmtBgh9SXgcP5V_-nH0oErv/exec";
+        const GS_WEBHOOK_SECRET =
+          "PV_LEADS_WEBHOOK_SECRET_8e2c7f4fb2c3412cbbde2f3e9a0c7b51";
+        if (!GS_WEBHOOK_URL) return;
+        const data = JSON.stringify({
+          secret: GS_WEBHOOK_SECRET,
+          data: payload,
+        });
+        try {
+          if (navigator.sendBeacon) {
+            const blob = new Blob([data], {
+              type: "text/plain;charset=utf-8",
+            });
+            navigator.sendBeacon(GS_WEBHOOK_URL, blob);
+            return;
+          }
+        } catch (_) {}
+        try {
+          fetch(GS_WEBHOOK_URL, {
+            method: "POST",
+            mode: "no-cors",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: data,
+          });
+        } catch (_) {}
+      }
+
+      async function sendLeadToBackend({
+        productLabel,
+        name,
+        address,
+        email,
+        phone,
+        origin,
+        qualification,
+      }) {
+        const lang = getLang();
+        const product = mapProduct(productLabel);
+        const q =
+          qualification && typeof qualification === "object"
+            ? qualification
+            : { origin: origin || "form", product_label: productLabel };
+
+        // Jika tersedia, pakai skor detail V4 dari global (index/chatbot dapat men-define).
+        let score = 0,
+          priority = "P3-COLD",
+          confidence = 0.5,
+          score_breakdown = "basic",
+          components = {},
+          tags = [],
+          risk_flags = [],
+          next_action = "Nurture (email/WhatsApp) + retargeting",
+          sla_minutes = 1440,
+          routing = "Marketing Ops";
+
+        try {
+          if (
+            typeof window.computeLeadScoreDetailV4 === "function"
+          ) {
+            const det = window.computeLeadScoreDetailV4(
+              product,
+              q,
+              { name, email, phone, address }
+            );
+            score = det.score;
+            priority = det.priority;
+            confidence = det.confidence;
+            score_breakdown = det.score_breakdown;
+            components = det.components;
+            tags = det.tags;
+            risk_flags = det.risk_flags;
+            next_action = det.next_action;
+            sla_minutes = det.sla_minutes;
+            routing = det.routing;
+          }
+        } catch (_) {}
+
+        const { id: funnel_id, version: funnel_version, trace: funnel_trace } =
+          getFunnelMeta();
+
+        const summary = buildLeadSummary(lang, productLabel, q);
+
+        const payload = {
+          source: "Website Funnel",
+          product,
+          qualification: q,
+          contact: {
+            name,
+            address,
+            email,
+            phone,
+            consent: true,
+          },
+          score,
+          priority,
+          confidence,
+          score_breakdown,
+          score_components: components,
+          tags,
+          risk_flags,
+          next_action,
+          sla_minutes,
+          routing,
+          summary,
+          notes: origin
+            ? `Submitted via ${origin}`
+            : "Submitted via chat funnel form",
+          meta: {
+            lang,
+            session_id: sessionId(),
+            variant: localStorage.getItem("ab_variant") || "A",
+            funnel_id,
+            funnel_version,
+            funnel_trace,
+          },
+        };
+
+        trackFE("contact_submit", {
+          product,
+          origin: origin || "unknown",
+          priority,
+          score,
+          confidence,
+        });
+        logLeadToGoogleSheet(payload);
+
+        const res = await fetch(_api("/lead"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("Lead push failed");
+        return res.json();
+      }
+
+      // Timeline → trigger summary + buka modal
+      window.onTimelineSelected = function (timelineValue) {
+        const lang = getLang();
+        const productLabel =
+          window.Funnel?.state?.productLabel ||
+          document.querySelector(".product-button.selected")?.textContent ||
+          "Photovoltaik";
+
+        const qualification = window.Funnel?.state?.data
+          ? { ...window.Funnel.state.data, timeline: timelineValue }
+          : {
+              timeline: timelineValue,
+              product_label: productLabel,
+            };
+
+        window.appendMessage?.(
+          lang === "de"
+            ? "Super, dann sind wir fast fertig. Bitte trage deine Kontaktdaten ein:"
+            : "Great, we’re almost done. Please enter your contact details:",
+          "bot"
+        );
+
+        showSummaryFromFunnel(qualification);
+        window.openLeadForm?.(productLabel, qualification);
+        trackFE("contact_open", {
+          product: mapProduct(productLabel),
+          timeline: timelineValue,
+        });
       };
 
-      const CFG = {
-        pv:    { expect: ["install_timeline","ownership","area_sqm","consumption_kwh","orientation","shading","storage_interest","roof_access_ok","budget_ready","self_occupied"], w:{ urgency:.18, authority:.12, need:.06, potential:.24, feasibility:.18, readiness:.12, data:.10 } },
-        roof:  { expect: ["install_timeline","ownership","area_sqm","issues","roof_access_ok","budget_ready","self_occupied"], w:{ urgency:.20, authority:.12, need:.24, potential:.16, feasibility:.12, readiness:.08, data:.08 } },
-        heatpump:{ expect:["install_timeline","ownership","living_area","heating_type","insulation","pv_interest","budget_ready","self_occupied"], w:{ urgency:.18, authority:.10, need:.12, potential:.22, feasibility:.20, readiness:.10, data:.08 } },
-        aircon:{ expect:["install_timeline","ownership","cool_area","rooms_count","budget_ready","self_occupied"], w:{ urgency:.20, authority:.10, need:.08, potential:.30, feasibility:.14, readiness:.10, data:.08 } },
-        tenant:{ expect:["install_timeline","ownership","units","weg_ok","roof_access_ok","budget_ready"], w:{ urgency:.18, authority:.14, need:.10, potential:.30, feasibility:.14, readiness:.08, data:.06 } },
-        window:{ expect:["install_timeline","ownership","windows_count","window_issues","glazing_preference","budget_ready","self_occupied"], w:{ urgency:.18, authority:.10, need:.18, potential:.22, feasibility:.12, readiness:.10, data:.10 } }
+      // Disqualified → kirim payload blokir
+      window.sendDisqualifiedLead = function (reason) {
+        const lang = getLang();
+        const productLabel =
+          window.Funnel?.state?.productLabel || "Photovoltaik";
+        const qualification = window.Funnel?.state?.data || {};
+        const summary = buildLeadSummary(
+          lang,
+          productLabel,
+          qualification
+        );
+
+        const { id: funnel_id, version: funnel_version, trace: funnel_trace } =
+          getFunnelMeta();
+
+        const payload = {
+          source: "Website Funnel",
+          product: mapProduct(productLabel),
+          qualification: {
+            ...qualification,
+            disqualify_reason: reason || "gate_failed",
+          },
+          contact: {
+            name: "-",
+            address: "-",
+            email: "no@email.invalid",
+            phone: "-",
+          },
+          score: 0,
+          priority: "P0-BLOCK",
+          confidence: 1.0,
+          score_breakdown: "Disqualified by guardrail",
+          tags: ["DISQUALIFIED"],
+          risk_flags: ["guardrail_disqualify"],
+          next_action: "Do not contact (blocked)",
+          sla_minutes: null,
+          routing: "N/A",
+          disqualified: true,
+          summary,
+          notes: "Auto-disqualify gate",
+          meta: {
+            lang,
+            session_id: sessionId(),
+            variant: localStorage.getItem("ab_variant") || "A",
+            funnel_id,
+            funnel_version,
+            funnel_trace,
+          },
+        };
+
+        try {
+          logLeadToGoogleSheet(payload);
+          fetch(_api("/lead"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        } catch (_) {}
+        trackFE("disqualify", {
+          product: payload.product,
+          reason: payload.qualification.disqualify_reason,
+        });
       };
+    </script>
 
-      function extractCtx(product, q={}, contact={}){ /* ...unchanged (panjang) ... */ }
-
-      /* === kategori & kalkulasi: sama seperti versi kamu (dipersingkat di sini) === */
-      /* ==== SNIP: fungsi-fungsi kategori & computeLeadScoreDetailV4 tetap sama seperti filemu ==== */
-
-      // NOTE: untuk menghemat ruang jawaban, isi lengkapmu tetap dipakai tanpa perubahan.
-    })();
-
-    /* ---------- Analytics ---------- */
-    function enableGTM() {
-      if (!allowAnalytics()) return;
-      const s = document.createElement("script");
-      s.src = "https://www.googletagmanager.com/gtag/js?id=G-YL8ECJ5V17";
-      s.async = true;
-      document.head.appendChild(s);
-
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){ dataLayer.push(arguments); }
-      window.gtag = gtag;
-      gtag('js', new Date());
-      gtag('config', 'G-YL8ECJ5V17');
-    }
-
-    /* ---------- Summary helpers (auto-hide kosong), logging, lead push, dsb ---------- */
-    // (semua helper-mu tetap sama seperti sebelumnya; tidak perlu cookie banner)
-  </script>
-</body>
+    <!-- 📦 Scripts utama (urutannya WAJIB seperti ini) -->
+    <script defer src="config.js"></script>
+    <script defer src="ai_guardrails_vlite.patched.js"></script>
+    <script defer src="chatbot.js"></script>
+  </body>
 </html>
