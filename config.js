@@ -1,22 +1,22 @@
 // ================================
-// WATTSON — Global Config
+// WATTSON — Global Config (FINAL)
+// Same-origin: BASE_API_URL kosong → /chat,/lead lewat vercel.json
 // ================================
 window.CONFIG = {
-  // ✅ Backend base (HARUS http/https)
-  BASE_API_URL: "https://web-production-53b70.up.railway.app",
+  // ✅ Backend base (biarkan kosong agar lewat rewrites Vercel)
+  BASE_API_URL: "",
 
-  // 🌐 Kalender booking (opsional, dibuka setelah submit lead)
+  // 🌐 Kalender booking (opsional)
   CALENDAR_URL: "",
 
   // 🌏 Bahasa & analytics
   LANG_DEFAULT: "de",
   GTM_ID: "G-YL8ECJ5V17",
 
-  // 🤖 Identitas bot
+  // 🤖 Identitas bot & aset
   BOT_NAME: "Wattson",
   BRAND: {
     title: "Wattson — Planville AI",
-    // ikon yang sudah ada di repo (sesuai yang kamu sebut)
     logo_svg: "wattson.svg",
     icon_192: "wattson-192.png",
     icon_512: "wattson-512.png",
@@ -32,15 +32,14 @@ window.CONFIG = {
   },
 
   // ⚡ Streaming
-  STREAMING: true,                 // aktifkan streaming
-  STREAM_TRANSPORT: "chunk",       // "chunk" | "sse"
-  // default fetch untuk request AI
+  STREAMING: true,
+  STREAM_TRANSPORT: "chunk", // "chunk" | "sse"
   FETCH_DEFAULTS: {
     cache: "no-store",
     keepalive: true
   },
 
-  // 🔌 Endpoint map (dipakai helper & guardrails)
+  // 🔌 Endpoint map (digabung dengan _api())
   ENDPOINTS: {
     chat: "/chat",
     chat_stream: "/chat/stream",
@@ -48,7 +47,7 @@ window.CONFIG = {
     track: "/track"
   },
 
-  // 🛡️ Opsi untuk ai_guardrails_vlite.patched.js (URL rewrite allow/deny)
+  // 🛡️ Opsi rewrite guard (dipakai patched guardrails)
   API_REWRITE_ALLOW: [
     "^/?(ai)(/|$)",
     "^/?(chat)(/|$)",
@@ -61,16 +60,20 @@ window.CONFIG = {
 };
 
 /**
- * 🔗 Helper untuk membentuk URL API yang aman.
+ * 🔗 Helper URL API aman.
  * Pakai: fetch(_api("/lead"), {...})
+ * - Jika BASE_API_URL kosong → hasil "/lead" (same-origin; lewat vercel.json)
+ * - Jika diisi http(s) → hasil "https://host/lead"
  */
 window._api = window._api || function(path = "") {
   try {
-    const base = (window.CONFIG?.BASE_API_URL || "").replace(/\/+$/,"");
+    const base = (window.CONFIG?.BASE_API_URL || "").replace(/\/+$/, "");
     const p = String(path || "");
-    return base + (p.startsWith("/") ? p : "/" + p);
-  } catch (e) {
-    return path; // fallback kalau ada error
+    return base
+      ? base + (p.startsWith("/") ? p : "/" + p)
+      : (p.startsWith("/") ? p : "/" + p);
+  } catch {
+    return path;
   }
 };
 
@@ -80,14 +83,14 @@ window.getCurrentLang = window.getCurrentLang || function(){
     if (typeof langSwitcher !== "undefined" && langSwitcher && langSwitcher.value) {
       return langSwitcher.value;
     }
-  } catch(e){}
+  } catch {}
   return window.CONFIG?.LANG_DEFAULT || "de";
 };
 
-/** 🧩 Title/helper kecil (opsional dipakai di header) */
+/** 🧩 Sinkron judul halaman dengan brand */
 (function syncBranding(){
   try{
     const t = window.CONFIG?.BRAND?.title || `${window.CONFIG?.BOT_NAME || "Chatbot"} — Planville`;
     if (document && document.title) document.title = t;
-  }catch(_){}
+  }catch{}
 })();
