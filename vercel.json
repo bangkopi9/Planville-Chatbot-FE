@@ -1,11 +1,11 @@
 {
+  "version": 2,
   "cleanUrls": true,
   "trailingSlash": false,
 
   "routes": [
     { "handle": "filesystem" },
 
-    /* ---- API proxy to Railway (same as your list) ---- */
     { "src": "^/ai/(.*)$",       "dest": "https://web-production-352d9.up.railway.app/ai/$1" },
     { "src": "^/chat$",          "dest": "https://web-production-352d9.up.railway.app/chat" },
     { "src": "^/chat/(.*)$",     "dest": "https://web-production-352d9.up.railway.app/chat/$1" },
@@ -15,11 +15,9 @@
     { "src": "^/schedule/(.*)$", "dest": "https://web-production-352d9.up.railway.app/schedule/$1" },
     { "src": "^/healthz$",       "dest": "https://web-production-352d9.up.railway.app/healthz" },
 
-    /* ---- (optional) SPA fallback. Hapus kalau tidak perlu. ---- */
     { "src": "^/(?!.*\\.(?:js|css|png|jpg|jpeg|svg|webp|ico|json|txt|map)$).*", "dest": "/index.html" }
   ],
 
-  /* headers kecil supaya asset ke-cache */
   "headers": [
     {
       "source": "/(.*)\\.(?:js|css|png|jpg|jpeg|svg|webp|ico|json|txt|map)",
