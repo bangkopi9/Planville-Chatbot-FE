@@ -1,19 +1,20 @@
-
-/* === PLANVILLE CHATBOT — LIGHT-ONLY (2025-09-23, full update) ===
-   - Fast streaming (NDJSON) + watchdog heartbeat + auto-retry
-   - No in-widget cookie banner / no 👍👎
-   - Universal popup modal (desktop & mobile)
-   - Funnels: pv, heatpump, aircon, roof, tenant, window
-   - Auto-greeting + FAQ + product options
-   - Guardrails compatible (optional) + robust fallbacks
+/* === PLANVILLE CHATBOT — LIGHT-ONLY DROP-IN (2025-09-19, fixed) ===
+   - Popup modal universal (desktop & mobile, auto-resize)
+   - Hapus inline form; hanya modal + mini form opsional (tetap pop-up)
+   - Hapus toggle dark/light (force light)
+   - Full product funnels: pv, heatpump, aircon, roof, tenant, window
+   - Satu sumber nudgeToFormFromInterrupt
+   - Auto-greeting + FAQ + opsi produk
+   - Guardrails aman (kalau AIGuard tidak ada, di-skip)
+   - Sintaks diperiksa: tanpa trailing/comma atau kurung nyasar
 */
 
+/* ---------------------------
+   Helpers & Config
+----------------------------*/
 (function(){
   "use strict";
 
-  /* ---------------------------
-     Base URL & helpers
-  ----------------------------*/
   function _baseURL(){
     try{
       let b = (typeof CONFIG !== "undefined" && CONFIG.BASE_API_URL)
@@ -29,145 +30,35 @@
     return base + (p.startsWith("/") ? p : "/" + p);
   }
 
-  /* ---------------------------
-     Streaming util (NDJSON)
-  ----------------------------*/
-  let __currentController = null;
-
-  function abortCurrentStream(){
-    try { __currentController?.abort(); } catch {}
-    __currentController = null;
-  }
-
-  // askAIStream({ question, lang, signal, onDelta, onDone })
-  // Watchdog heartbeat + light auto-retry → anti "Network connection lost"
+  // streaming util
   async function askAIStream({ question, lang, signal, onDelta, onDone }){
-    abortCurrentStream();
-
-    let attempts = 0;
-    const maxAttempts =
-      (window.CONFIG && CONFIG.RETRY && Number(CONFIG.RETRY.MAX_TRIES)) || 2;
-
-    async function once(){
-      const controller = new AbortController();
-      __currentController = controller;
-
-      if (signal){
-        if (signal.aborted) controller.abort();
-        else signal.addEventListener("abort", () => controller.abort(), { once:true });
-      }
-
-      // Hard-timeout to prevent hanging requests
-      const timeoutMs =
-        (window.CONFIG && Number(CONFIG.REQUEST_TIMEOUT_MS)) || 20000;
-      const to = setTimeout(() => { try { controller.abort(); } catch {} }, timeoutMs);
-
-      let res;
-      try{
-        res = await fetch(_api("/chat/stream"), {
-          method:"POST",
-          mode:"cors",
-          headers:{ "Content-Type":"application/json" },
-          body: JSON.stringify({ message: question, lang }),
-          signal: controller.signal,
-          keepalive: true
-        });
-      } finally {
-        clearTimeout(to);
-      }
-
-      if (!res.ok) throw new Error("Stream " + res.status);
-
-      // Not a stream? just return text
-      if (!res.body || !res.body.getReader){
-        const txt = await res.text();
-        onDelta?.(txt, txt);
-        onDone?.(txt);
-        __currentController = null;
-        return txt;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let buf = "";
-      let acc = "";
-      let lastChunkAt = Date.now();
-
-      // Heartbeat watchdog: if 2× interval without data → abort (trigger retry)
-      const hbMs = (window.CONFIG && Number(CONFIG.SSE_HEARTBEAT_MS)) || 15000;
-      const watchdog = setInterval(() => {
-        if (Date.now() - lastChunkAt > hbMs * 2){
-          try { controller.abort(); } catch {}
-        }
-      }, hbMs);
-
-      try{
-        for(;;){
-          const { value, done } = await reader.read();
-          if (done) break;
-
-          lastChunkAt = Date.now();
-          buf += decoder.decode(value, { stream:true });
-
-          // NDJSON per line; if not JSON, forward as-is
-          let idx;
-          while ((idx = buf.indexOf("\n")) >= 0) {
-            const line = buf.slice(0, idx).trim();
-            buf = buf.slice(idx + 1);
-            if (!line) continue;
-
-            let piece = "";
-            try {
-              const obj = JSON.parse(line);
-              piece = (obj.delta ?? obj.text ?? "");
-            } catch {
-              piece = line;
-            }
-            if (piece) {
-              acc += piece;
-              onDelta?.(piece, acc);
-            }
-          }
-        }
-
-        // tail
-        const tail = buf.trim();
-        if (tail) {
-          let piece = "";
-          try {
-            const obj = JSON.parse(tail);
-            piece = (obj.delta ?? obj.text ?? "");
-          } catch {
-            piece = tail;
-          }
-          if (piece) {
-            acc += piece;
-            onDelta?.(piece, acc);
-          }
-        }
-
-        onDone?.(acc);
-        __currentController = null;
-        return acc;
-      } finally {
-        clearInterval(watchdog);
-      }
+    const res = await fetch(_api("/chat/stream"), {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ message: question, lang }),
+      signal
+    });
+    if (!res.ok) throw new Error("Stream " + res.status);
+    if (!res.body || !res.body.getReader){
+      const txt = await res.text();
+      if (onDelta) onDelta(txt, txt);
+      if (onDone) onDone(txt);
+      return txt;
     }
-
-    // Light retry with simple backoff
-    for (;;) {
-      try {
-        return await once();
-      } catch (e) {
-        attempts += 1;
-        if (attempts > maxAttempts) throw e;
-        const delay =
-          (window.CONFIG && CONFIG.RETRY && Number(CONFIG.RETRY.BASE_DELAY_MS)) || 800;
-        await new Promise(r => setTimeout(r, delay * attempts));
-      }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let full = "";
+    for(;;){
+      const { value, done } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream:true });
+      if (!chunk) continue;
+      full += chunk;
+      if (onDelta) onDelta(chunk, full);
     }
+    if (onDone) onDone(full);
+    return full;
   }
-
   async function withRetry(fn, { retries=1, baseDelay=600 } = {}){
     let last;
     for (let i=0;i<=retries;i++){
@@ -195,24 +86,24 @@
   }
   function _allowAnalytics(){ return !!_getConsentState().analytics; }
   function track(eventName, props={}, { essential=false } = {}){
+    if (typeof window.trackFE === "function"){
+      return window.trackFE(eventName, props, { essential });
+    }
+    if (!essential && !_allowAnalytics()) return;
     try{
-      if (typeof window.trackFE === "function"){
-        window.trackFE(eventName, props, { essential });
-        return;
-      }
-      if (!essential && !_allowAnalytics()) return;
       window.dataLayer = window.dataLayer || [];
       const variant = localStorage.getItem("ab_variant") || "A";
       window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
-      // lightweight backend track (best-effort)
+    }catch(_){}
+    try{
       fetch(_api("/track"), {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
         body: JSON.stringify({
           event: eventName,
-          props: Object.assign({ variant }, props)
+          props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props)
         })
-      }).catch(()=>{});
+      });
     }catch(_){}
   }
 
@@ -284,25 +175,15 @@
   };
 
   /* ---------------------------
-     Element selectors (+ guards)
+     Element selectors
   ----------------------------*/
   const chatLog      = document.getElementById("chatbot-log");
   const form         = document.getElementById("chatbot-form");
   const input        = document.getElementById("chatbot-input");
-  let typingBubble   = document.getElementById("typing-bubble");
+  const typingBubble = document.getElementById("typing-bubble");
   const langSwitcher = document.getElementById("langSwitcher");
   const pvHero       = document.querySelector(".pv-hero");
   const pvBalloon    = document.querySelector(".pv-balloon span");
-
-  // Create a hidden typing bubble if missing (prevents NPEs)
-  if (!typingBubble && chatLog){
-    typingBubble = document.createElement("div");
-    typingBubble.id = "typing-bubble";
-    typingBubble.className = "typing-bubble bot-message chatbot-message";
-    typingBubble.style.display = "none";
-    typingBubble.textContent = "…";
-    chatLog.appendChild(typingBubble);
-  }
 
   let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
   let chatStarted = false;
@@ -315,6 +196,13 @@
       m.content = "width=device-width, initial-scale=1, viewport-fit=cover";
       document.head.appendChild(m);
     }
+  }
+
+  function isMobile(){
+    return (
+      window.matchMedia("(max-width: 768px)").matches ||
+      (window.matchMedia("(pointer:coarse)").matches && window.innerWidth <= 1024)
+    );
   }
   function openLeadForm(productLabel, qualification){
     const lang = (langSwitcher && langSwitcher.value) || "de";
@@ -330,37 +218,29 @@
     const selectedLang = localStorage.getItem("selectedLang") || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
     if (langSwitcher) langSwitcher.value = selectedLang;
 
-    // remove any old hero balloon fragment (defensive)
     const oldBalloon = document.querySelector(".pv-balloon");
-    if (oldBalloon && oldBalloon.parentNode) oldBalloon.remove();
-    if (pvBalloon && I18N.robotBalloon[selectedLang]) pvBalloon.textContent = I18N.robotBalloon[selectedLang];
+    if (oldBalloon) oldBalloon.remove();
+    if (pvBalloon) pvBalloon.textContent = I18N.robotBalloon[selectedLang];
 
     updateFAQ(selectedLang);
     updateHeaderOnly(selectedLang);
 
-    // show chat area
+    const consent = localStorage.getItem("cookieConsent");
+    if (!consent){
+      const banner = document.getElementById("cookie-banner");
+      if (banner) banner.style.display = "block";
+    } else if (consent === "accepted"){
+      if (typeof enableGTM === "function") enableGTM();
+    }
+
     showChatArea();
     chatStarted = true;
 
-    // Auto-greeting only when log empty and no product options yet
-    const hasContent  = !!(chatLog && chatLog.children && chatLog.children.length > 0);
-    const hasProducts = !!document.getElementById("product-options-block");
+    // Auto-greeting sekali, kalau log masih kosong
+    const hasContent  = chatLog && chatLog.children && chatLog.children.length > 0;
+    const hasProducts = document.getElementById("product-options-block");
     if (!hasContent && !hasProducts){
       startGreetingFlow(true);
-    }
-  });
-
-  // Reconnect helpers (UX anti-blank)
-  window.addEventListener("online", () => {
-    // optional: show "Back online" toast/snackbar
-  });
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") {
-      const tb = document.getElementById("typing-bubble");
-      if (tb && tb.style.display !== "none") {
-        // Offer a CTA instead of hanging bubble
-        maybeOfferStartCTA((langSwitcher && langSwitcher.value) || "de");
-      }
     }
   });
 
@@ -381,33 +261,30 @@
     langSwitcher.addEventListener("change", function(){
       const lang = langSwitcher.value;
       localStorage.setItem("selectedLang", lang);
-      if (pvBalloon && I18N.robotBalloon[lang]) pvBalloon.textContent = I18N.robotBalloon[lang];
+      if (pvBalloon) pvBalloon.textContent = I18N.robotBalloon[lang];
       updateFAQ(lang);
       if (chatStarted) updateUITexts(lang); else updateHeaderOnly(lang);
       track("language_switch", { lang: lang });
     });
   }
 
-  // Submit handler (streaming + abort)
+  // Submit handler (streaming)
   if (form){
     form.addEventListener("submit", async function(e){
       e.preventDefault();
       __lastOrigin = __lastOrigin || "chat";
       if (!chatStarted){ chatStarted = true; showChatArea(); }
 
-      if (!input) return; // nothing to read
       const question = (input.value || "").trim();
       const selectedLang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
       if (!question) return;
 
-      abortCurrentStream();
-
-      appendMessage(escapeHTML(question), "user");
+      appendMessage(question, "user");
       saveToHistory("user", question);
       input.value = "";
       if (typingBubble) typingBubble.style.display = "block";
 
-      // quick intents
+      // Intent sederhana
       if (detectIntent(question)){
         if (typingBubble) typingBubble.style.display = "none";
         const inFunnel = !!(window.Funnel && window.Funnel.state && window.Funnel.state.product);
@@ -420,7 +297,7 @@
       const botLive = appendMessage("...", "bot");
 
       try{
-        // Guardrails (optional)
+        // Guardrails (opsional)
         if (window.AIGuard && typeof window.AIGuard.ask === "function"){
           const ai = await window.AIGuard.ask(question, selectedLang);
           if (ai && ai.stop){
@@ -433,7 +310,11 @@
           if (ai && ai.text){
             finalReply = String(ai.text).trim();
             if (typingBubble) typingBubble.style.display = "none";
-            if (botLive) botLive.innerHTML = finalReply;
+            if (botLive){
+              const fb = botLive.querySelector(".feedback-btns");
+              botLive.innerHTML = finalReply;
+              if (fb) botLive.appendChild(fb);
+            }
             saveToHistory("bot", finalReply);
           }
         }
@@ -447,11 +328,13 @@
             question,
             lang: selectedLang,
             signal: controller.signal,
-            onDelta: function(piece, acc){
+            onDelta: function(_chunk, acc){
               if (!gotFirst && typingBubble) { typingBubble.style.display = "none"; gotFirst = true; }
               if (botLive){
+                const fb = botLive.querySelector(".feedback-btns");
                 botLive.innerHTML = acc;
-                if (chatLog) chatLog.scrollTop = chatLog.scrollHeight;
+                if (fb) botLive.appendChild(fb);
+                chatLog.scrollTop = chatLog.scrollHeight;
               }
             },
             onDone: function(full){
@@ -463,22 +346,31 @@
           saveToHistory("bot", finalReply);
         }
       }catch(err){
-        // Fallback non-stream endpoint
         try{
           const res = await fetch(_api("/chat"), {
             method:"POST",
             headers:{ "Content-Type":"application/json" },
             body: JSON.stringify({ message: question, lang: selectedLang })
           });
-          const data = await res.json().catch(()=> ({}));
-          const replyRaw = data && (data.answer ?? data.reply);
+          const data = await res.json();
+          const replyRaw = data.answer !== undefined ? data.answer : data.reply;
           finalReply = (typeof replyRaw === "string" ? replyRaw.trim() : "") || I18N.unsure[selectedLang];
-          if (botLive) botLive.innerHTML = finalReply;
-          else appendMessage(finalReply, "bot");
+          if (botLive){
+            const fb = botLive.querySelector(".feedback-btns");
+            botLive.innerHTML = finalReply;
+            if (fb) botLive.appendChild(fb);
+          }else{
+            appendMessage(finalReply, "bot");
+          }
           saveToHistory("bot", finalReply);
         }catch(_){
-          if (botLive) botLive.innerHTML = "Error while connecting to the API.";
-          else appendMessage("Error while connecting to the API.", "bot");
+          if (botLive){
+            const fb = botLive.querySelector(".feedback-btns");
+            botLive.innerHTML = "Error while connecting to the API.";
+            if (fb) botLive.appendChild(fb);
+          }else{
+            appendMessage("Error while connecting to the API.", "bot");
+          }
         }finally{
           if (typingBubble) typingBubble.style.display = "none";
         }
@@ -509,31 +401,35 @@
   }
   function updateHeaderOnly(lang){
     const h = document.querySelector(".chatbot-header h1");
-    if (h && I18N.header[lang]) h.innerText = I18N.header[lang];
+    if (h) h.innerText = I18N.header[lang];
   }
 
   /* ---------------------------
      Append / Save / Reset
   ----------------------------*/
-  function escapeHTML(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-
   function appendMessage(msg, sender, scroll){
     if (!chatLog) return null;
     const msgDiv = document.createElement("div");
     msgDiv.className = "chatbot-message " + (sender === "user" ? "user-message" : "bot-message");
-    if (sender === "user") msgDiv.textContent = String(msg); else msgDiv.innerHTML = msg;
+    msgDiv.innerHTML = msg;
+
+    if (sender === "bot"){
+      const feedback = document.createElement("div");
+      feedback.className = "feedback-btns";
+      feedback.innerHTML = '<button onclick="feedbackClick(\'up\')" aria-label="thumbs up">👍</button><button onclick="feedbackClick(\'down\')" aria-label="thumbs down">👎</button>';
+      msgDiv.appendChild(feedback);
+    }
+
     chatLog.appendChild(msgDiv);
     if (scroll === undefined || scroll) chatLog.scrollTop = chatLog.scrollHeight;
     return msgDiv;
   }
   function saveToHistory(sender, message){
-    try{
-      chatHistory.push({ sender: sender, message: message });
-      localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
-    }catch(_){}
+    chatHistory.push({ sender: sender, message: message });
+    localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
   }
   function resetChat(){
-    try{ localStorage.removeItem("chatHistory"); }catch(_){}
+    localStorage.removeItem("chatHistory");
     chatHistory = [];
     if (chatLog) chatLog.innerHTML = "";
     const productBlock = document.getElementById("product-options-block");
@@ -554,13 +450,8 @@
       li.innerText = txt;
       li.addEventListener("click", function(){
         __lastOrigin = "faq";
-        if (input) input.value = txt;
-        if (form){
-          form.dispatchEvent(new Event("submit"));
-        }else{
-          // fallback: just echo and trigger intent/system response
-          appendMessage(escapeHTML(txt), "user");
-        }
+        input.value = txt;
+        form.dispatchEvent(new Event("submit"));
         track("faq_click", { text: txt });
       });
       list.appendChild(li);
@@ -568,17 +459,25 @@
   }
   function sendFAQ(text){
     __lastOrigin = "faq";
-    if (input) input.value = text;
-    if (form) form.dispatchEvent(new Event("submit"));
+    input.value = text;
+    form.dispatchEvent(new Event("submit"));
     track("faq_click", { text: text });
   }
+
+  /* ---------------------------
+     Feedback
+  ----------------------------*/
+  window.feedbackClick = function(type){
+    alert(type === "up" ? "Thanks for your feedback! 👍" : "We'll improve. 👎");
+    track("chat_feedback", { type: type });
+  };
 
   /* ---------------------------
      UI Texts / Product options
   ----------------------------*/
   function updateUITexts(lang){
     const h = document.querySelector(".chatbot-header h1");
-    if (h && I18N.header[lang]) h.innerText = I18N.header[lang];
+    if (h) h.innerText = I18N.header[lang];
     resetChat();
     appendMessage(I18N.greeting[lang], "bot");
     showProductOptions();
@@ -644,6 +543,7 @@
     }
     if (lower.includes("tertarik") || lower.includes("interested")){
       appendMessage(lang==="de" ? "Super! Bitte füllen Sie dieses kurze Formular aus:" : "Great! Please fill out this short form:", "bot");
+      // langsung buka modal
       const label = window.Funnel && Funnel.state && Funnel.state.productLabel ? Funnel.state.productLabel : "Beratung";
       const qual = window.Funnel && Funnel.state ? (Funnel.state.data || {}) : {};
       openLeadForm(label, qual);
@@ -720,7 +620,6 @@
       wrap.remove();
     };
     if (chatLog){ chatLog.appendChild(wrap); chatLog.scrollTop = chatLog.scrollHeight; }
-    setTimeout(()=>{ try{ inp.focus(); }catch(_){}} , 0);
   }
 
   function askContact(){
@@ -989,8 +888,8 @@
     }
     if (d.install_timeline === undefined){
       const opts = (lang==="de"
-        ? [{label:"Schnellstmöglich",value:"asap"},{label:"1–3 Monate",value:"1-3"},{label:"4–6 Monate",value:"4-6"},{label:">6 Monate",value:">6"}])
-        : [{label:"ASAP",value:"asap"},{label:"1–3 months",value:"1-3"},{label:"4–6 months",value:"4-6"},{label:">6 months",value:">6"}];
+        ? [{label:"Schnellstmöglich",value:"asap"},{label:"1–3 Monate",value:"1-3"},{label:"4–6 Monate",value:"4-6"},{label:">6 Monate",value:">6"}]
+        : [{label:"ASAP",value:"asap"},{label:"1–3 months",value:"1-3"},{label:"4–6 months",value:"4-6"},{label:">6 months",value:">6"}]);
       askCards(Q.install_timeline_q[lang], opts, "install_timeline"); return;
     }
     if (d.property_street_number === undefined){
@@ -1126,7 +1025,6 @@
   #lead-float{width:100vw;max-width:100vw;border-radius:16px 16px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.35);max-height:92vh;overflow-y:auto;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 18px)}
 }
 </style>
-
 <div id="lead-float" role="dialog" aria-modal="true">
   <button type="button" id="lf_close" aria-label="Close">×</button>
   <h3>${lang==="de"?"Kurzes Formular":"Quick form"}</h3>
@@ -1154,11 +1052,9 @@
 </div>`;
     document.body.appendChild(ov);
 
-    // lock scroll while modal open
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    // prefill from qualification
     try{
       if (qualification && qualification.property_street_number){
         ov.querySelector("#lf_addr").value = String(qualification.property_street_number);
@@ -1228,9 +1124,6 @@
     }catch(_){}
   }
 
-  /* ---------------------------
-     Expose a few helpers
-  ----------------------------*/
   window.startGreetingFlow   = startGreetingFlow;
   window.showProductOptions  = showProductOptions;
   window.appendMessage       = appendMessage;
@@ -1239,6 +1132,4 @@
   // A/B variant sticky
   const AB = { variant: localStorage.getItem("ab_variant") || (Math.random() < 0.5 ? "A":"B") };
   localStorage.setItem("ab_variant", AB.variant);
-
-})(); 
-
+})();
