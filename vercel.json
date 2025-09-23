@@ -6,16 +6,16 @@
   "routes": [
     { "handle": "filesystem" },
 
-    { "src": "^/ai/(.*)$",       "dest": "https://web-production-352d9.up.railway.app/ai/$1" },
-    { "src": "^/chat$",          "dest": "https://web-production-352d9.up.railway.app/chat" },
-    { "src": "^/chat/(.*)$",     "dest": "https://web-production-352d9.up.railway.app/chat/$1" },
-    { "src": "^/lead$",          "dest": "https://web-production-352d9.up.railway.app/lead" },
-    { "src": "^/track$",         "dest": "https://web-production-352d9.up.railway.app/track" },
-    { "src": "^/funnel/(.*)$",   "dest": "https://web-production-352d9.up.railway.app/funnel/$1" },
-    { "src": "^/schedule/(.*)$", "dest": "https://web-production-352d9.up.railway.app/schedule/$1" },
-    { "src": "^/healthz$",       "dest": "https://web-production-352d9.up.railway.app/healthz" },
+    { "src": "/ai/(.*)",       "dest": "https://web-production-352d9.up.railway.app/ai/$1" },
+    { "src": "/chat",          "dest": "https://web-production-352d9.up.railway.app/chat" },
+    { "src": "/chat/(.*)",     "dest": "https://web-production-352d9.up.railway.app/chat/$1" },
+    { "src": "/lead",          "dest": "https://web-production-352d9.up.railway.app/lead" },
+    { "src": "/track",         "dest": "https://web-production-352d9.up.railway.app/track" },
+    { "src": "/funnel/(.*)",   "dest": "https://web-production-352d9.up.railway.app/funnel/$1" },
+    { "src": "/schedule/(.*)", "dest": "https://web-production-352d9.up.railway.app/schedule/$1" },
+    { "src": "/healthz",       "dest": "https://web-production-352d9.up.railway.app/healthz" },
 
-    { "src": "^/(?!.*\\.(?:js|css|png|jpg|jpeg|svg|webp|ico|json|txt|map)$).*", "dest": "/index.html" }
+    { "src": "/(.*)",          "dest": "/index.html" }
   ],
 
   "headers": [
