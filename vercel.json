@@ -1,14 +1,31 @@
 {
-  "rewrites": [
-    { "source": "/ai/(.*)",        "destination": "https://web-production-352d9.up.railway.app/ai/$1" },
-    { "source": "/chat",           "destination": "https://web-production-352d9.up.railway.app/chat" },
-    { "source": "/chat/(.*)",      "destination": "https://web-production-352d9.up.railway.app/chat/$1" },
-    { "source": "/lead",           "destination": "https://web-production-352d9.up.railway.app/lead" },
-    { "source": "/track",          "destination": "https://web-production-352d9.up.railway.app/track" },
-    { "source": "/funnel/(.*)",    "destination": "https://web-production-352d9.up.railway.app/funnel/$1" },
-    { "source": "/schedule/(.*)",  "destination": "https://web-production-352d9.up.railway.app/schedule/$1" },
-    { "source": "/healthz",        "destination": "https://web-production-352d9.up.railway.app/healthz" }
-  ],
   "cleanUrls": true,
-  "trailingSlash": false
+  "trailingSlash": false,
+
+  "routes": [
+    { "handle": "filesystem" },
+
+    /* ---- API proxy to Railway (same as your list) ---- */
+    { "src": "^/ai/(.*)$",       "dest": "https://web-production-352d9.up.railway.app/ai/$1" },
+    { "src": "^/chat$",          "dest": "https://web-production-352d9.up.railway.app/chat" },
+    { "src": "^/chat/(.*)$",     "dest": "https://web-production-352d9.up.railway.app/chat/$1" },
+    { "src": "^/lead$",          "dest": "https://web-production-352d9.up.railway.app/lead" },
+    { "src": "^/track$",         "dest": "https://web-production-352d9.up.railway.app/track" },
+    { "src": "^/funnel/(.*)$",   "dest": "https://web-production-352d9.up.railway.app/funnel/$1" },
+    { "src": "^/schedule/(.*)$", "dest": "https://web-production-352d9.up.railway.app/schedule/$1" },
+    { "src": "^/healthz$",       "dest": "https://web-production-352d9.up.railway.app/healthz" },
+
+    /* ---- (optional) SPA fallback. Hapus kalau tidak perlu. ---- */
+    { "src": "^/(?!.*\\.(?:js|css|png|jpg|jpeg|svg|webp|ico|json|txt|map)$).*", "dest": "/index.html" }
+  ],
+
+  /* headers kecil supaya asset ke-cache */
+  "headers": [
+    {
+      "source": "/(.*)\\.(?:js|css|png|jpg|jpeg|svg|webp|ico|json|txt|map)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
+  ]
 }
