@@ -1,15 +1,18 @@
 {
-  "name": "Planville AI Chatbot",
-  "short_name": "PlanvilleBot",
+  "name": "Wattson",
+  "short_name": "Wattson",
+  "description": "Wattson – Planville AI Chatbot",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#101820",
-  "theme_color": "#64ffda",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#10b981",
   "icons": [
-    {
-      "src": "planville-logo.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    }
-  ]
+    { "src": "wattson-192.png",           "sizes": "192x192", "type": "image/png" },
+    { "src": "wattson-512.png",           "sizes": "512x512", "type": "image/png" },
+    { "src": "wattson-maskable-192.png",  "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "wattson-maskable-512.png",  "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "prefer_related_applications": false
 }
