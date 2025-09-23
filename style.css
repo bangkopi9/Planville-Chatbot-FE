@@ -1,8 +1,7 @@
-/* === PLANVILLE AI CHATBOT — LIGHT-ONLY FINAL (2025-09-19) === */
-/* - No dark mode, no toggle
-   - Clean light palette for embed
-   - Works on desktop & mobile
-   - Popup form uses inline CSS from JS (no inline chat form here)
+/* === WATTSON — LIGHT-ONLY FINAL (2025-09-23) ===
+   - No dark mode, no cookie banner, no rating UI
+   - Clean light palette for embed (brand: emerald)
+   - Desktop & mobile ready
 */
 
 /* --------------------------------
@@ -15,9 +14,9 @@
 
   --bubble-user: #d1e7dd;      /* soft green */
   --bubble-bot: #f7f7f7;       /* light gray */
-  --accent: #FFA100;           /* brand accent */
+  --accent: #10b981;           /* emerald (matches manifest theme_color) */
   --accent-2: #0f766e;         /* teal used in modal CTA */
-  --accent-3: #ffc107;         /* CTA chip */
+  --accent-3: #34d399;         /* secondary CTA chip */
   --border: #ced4da;
 
   --surface: #ffffff;
@@ -37,10 +36,11 @@ body{
   color: var(--text);
   display:flex;
   min-height:100vh;
-  background-image: url("logo-watermark-light.png");
+  /* optional watermark: comment out if not needed */
+  /* background-image: url("wattson-192.png");
   background-repeat:no-repeat;
   background-position: center left;
-  background-size: 180px;
+  background-size: 180px; */
 }
 
 /* --------------------------------
@@ -90,12 +90,10 @@ body{
   gap:.75rem;
   margin-bottom:1rem;
 }
-.chatbot-logo{ height:32px }
+.chatbot-logo{ height:32px; width:auto; display:block }
 .chatbot-header h1{
   font-size:22px; margin:0; font-weight:700; color:#0f172a;
 }
-
-/* (Dark/Light toggle removed) */
 
 /* --------------------------------
    CHAT AREA
@@ -108,6 +106,9 @@ body{
   border:1px solid var(--border);
   border-radius:8px;
   background: var(--surface);
+  /* performance hint: render only visible content */
+  content-visibility:auto;
+  contain-intrinsic-size: 600px;
 }
 
 .chatbot-message{
@@ -161,18 +162,18 @@ input[type="text"]:focus,
 input[type="email"]:focus,
 input[type="tel"]:focus{
   outline:none; border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(255,161,0,.18);
+  box-shadow: 0 0 0 3px rgba(16,185,129,.18);
 }
 button[type="submit"]{
   background: var(--accent);
-  color:#111;
+  color:#fff;
   border:none;
   padding:0 1rem;
   border-radius:8px;
   cursor:pointer;
   font-size:1.05rem;
 }
-button[type="submit"]:hover{ opacity:.92 }
+button[type="submit"]:hover{ filter:brightness(0.95) }
 
 /* Ensure main chat input visible */
 #chatbot-form{ display:flex; gap:8px; align-items:center }
@@ -193,36 +194,14 @@ button[type="submit"]:hover{ opacity:.92 }
 }
 
 /* --------------------------------
-   FEEDBACK (👍👎)
+   (REMOVED) FEEDBACK (👍👎)
 ---------------------------------*/
-.feedback-btns{ margin-top:8px; text-align:right }
-.feedback-btns button{
-  margin-left:6px; background:transparent; border:none;
-  font-size:1.2rem; cursor:pointer; transition:transform .2s;
-}
-.feedback-btns button:hover{ transform:scale(1.2) }
+/* .feedback-btns { display:none }  -- UI & logic dihapus di JS */
 
 /* --------------------------------
-   COOKIE CONSENT
+   (REMOVED) COOKIE CONSENT
 ---------------------------------*/
-.cookie-popup{
-  position:fixed; left:0; right:0; bottom:0;
-  background:#ffffff; color:var(--text);
-  border-top:1px solid var(--border);
-  padding:1rem; z-index:999;
-  display:none;
-  justify-content:space-between; align-items:center;
-}
-.cookie-popup p{ margin:0 }
-.cookie-buttons button{
-  margin-left:10px;
-  background-color: var(--accent-3);
-  color:#111;
-  padding:6px 12px;
-  border:none; border-radius:6px;
-  cursor:pointer;
-}
-.cookie-buttons button:hover{ opacity:.95 }
+/* Cookie banner sudah dihapus dari HTML & JS */
 
 /* --------------------------------
    ANIMATIONS
@@ -239,12 +218,12 @@ button[type="submit"]:hover{ opacity:.92 }
   background: var(--accent);
   padding:1rem 1.5rem;
   border:none; border-radius:24px;
-  font-size:1.05rem; font-weight:700; color:#000;
+  font-size:1.05rem; font-weight:700; color:#fff;
   cursor:pointer; text-align:left;
   transition: transform .18s, background .25s, box-shadow .18s;
 }
 .product-button:hover{
-  background:#ffcd39;
+  filter:brightness(0.95);
   transform: translateX(5px);
   box-shadow: 0 4px 10px rgba(0,0,0,.12);
 }
@@ -252,12 +231,12 @@ button[type="submit"]:hover{ opacity:.92 }
 /* CTA anchor chips from bot replies */
 .cta-button{
   display:inline-block; margin-top:12px;
-  background: var(--accent-3); color:#111;
+  background: var(--accent-3); color:#083344;
   padding:10px 16px; border-radius:24px;
   font-weight:700; font-size:1rem; text-decoration:none;
   transition: background .25s ease, transform .15s ease;
 }
-.cta-button:hover{ background:#ffe08a; transform: translateY(-1px); }
+.cta-button:hover{ filter:brightness(0.96); transform: translateY(-1px); }
 
 /* --------------------------------
    PLANVILLE ADD-ON (hero balloon)
@@ -341,13 +320,12 @@ button[type="submit"]:hover{ opacity:.92 }
    MOBILE TWEAKS
 ---------------------------------*/
 @media (max-width:768px){
-  body{ background-position: -120px 40px; background-size: 140px }
+  /* body{ background-position: -120px 40px; background-size: 140px } */
   .chatbot-container{ padding:1rem }
   #chatbot-log{ margin: .75rem 0 }
 }
 
 /* NOTE:
-   - Dark mode & toggle switch styles telah DIHAPUS.
-   - Popup contact form (#lead-float-overlay / #lead-float) sudah punya
-     CSS inline dari JS (openLeadFloatForm), jadi tidak didefinisikan di sini.
+   - Cookie banner & rating button styles DIHAPUS.
+   - Popup contact form pakai CSS inline dari JS (openLeadFloatForm).
 */
