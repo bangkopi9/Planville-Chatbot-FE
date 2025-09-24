@@ -1,5 +1,6 @@
-/* === WATTSON CHATBOT — LIGHT-ONLY DROP-IN (2025-09-23) ===
-   - Streaming cepat (abort-on-new, keepalive, no-store)
+/* === WATTSON CHATBOT — LIGHT-ONLY DROP-IN (2025-09-24) ===
+   - Streaming cepat & tangguh (NDJSON/Plaintext) + watchdog + fallback
+   - Abort-on-new submit, keepalive, no-store
    - Tanpa cookie banner logic & tanpa rating 👍👎
    - Popup modal universal (desktop & mobile)
    - Full product funnels: pv, heatpump, aircon, roof, tenant, window
@@ -7,85 +8,167 @@
    - Guardrails opsional (jika AIGuard tersedia)
 */
 
-(function(){
+(function () {
   "use strict";
 
   /* ---------------------------
      Helpers & Config
   ----------------------------*/
-  function _baseURL(){
-    try{
-      let b = (typeof CONFIG !== "undefined" && CONFIG.BASE_API_URL)
-        ? String(CONFIG.BASE_API_URL).trim() : "";
+  function _baseURL() {
+    try {
+      let b =
+        typeof CONFIG !== "undefined" && CONFIG.BASE_API_URL
+          ? String(CONFIG.BASE_API_URL).trim()
+          : "";
       if (!b) return "";
       if (!/^https?:\/\//i.test(b)) b = "https://" + b;
-      return b.replace(/\/+$/,"");
-    }catch(_){ return ""; }
+      return b.replace(/\/+$/, "");
+    } catch (_) {
+      return "";
+    }
   }
-  function _api(path){
+  function _api(path) {
     const base = _baseURL();
     const p = String(path || "");
     return base + (p.startsWith("/") ? p : "/" + p);
   }
 
-  // streaming util (NDJSON/text)
-  async function askAIStream({ question, lang, signal, onDelta, onDone }){
-    const res = await fetch(_api("/chat/stream"), {
-      method:"POST",
-      cache:"no-store",
-      keepalive:true,
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ message: question, lang }),
-      signal
-    });
-    if (!res.ok) throw new Error("Stream " + res.status);
-    if (!res.body || !res.body.getReader){
-      const txt = await res.text();
-      onDelta && onDelta(txt, txt);
-      onDone && onDone(txt);
-      return txt;
-    }
-    const reader = res.body.getReader();
+  // ---- Streaming utils: NDJSON/Plaintext + Watchdog + Fallback ----
+  async function readStreamNDJSON(reader, onDelta) {
     const decoder = new TextDecoder();
-    let full = "";
-    for(;;){
+    let carry = "";
+    while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value, { stream:true });
+      const chunk = decoder.decode(value, { stream: true });
       if (!chunk) continue;
-      full += chunk;
-      onDelta && onDelta(chunk, full);
+      carry += chunk;
+
+      const parts = carry.split("\n");
+      for (let i = 0; i < parts.length - 1; i++) {
+        const line = parts[i].trim();
+        if (!line) continue;
+        // Coba NDJSON; jika gagal, treat sebagai plaintext
+        try {
+          const obj = JSON.parse(line);
+          const txt = obj?.delta ?? obj?.text ?? obj?.content ?? "";
+          if (txt) onDelta(txt);
+        } catch {
+          onDelta(parts[i]);
+        }
+      }
+      carry = parts[parts.length - 1];
     }
-    onDone && onDone(full);
-    return full;
+    if (carry.trim()) {
+      try {
+        const obj = JSON.parse(carry);
+        const txt = obj?.delta ?? obj?.text ?? obj?.content ?? "";
+        if (txt) onDelta(txt);
+      } catch {
+        onDelta(carry);
+      }
+    }
   }
 
-  async function withRetry(fn, { retries=1, baseDelay=500 } = {}){
+  async function askStreamWithFallback({ question, lang }, { onDelta, onDone }) {
+    // Abort request sebelumnya agar first-token lebih cepat
+    if (window.__chatAbortController) {
+      try { window.__chatAbortController.abort(); } catch (_) {}
+    }
+    const controller = new AbortController();
+    window.__chatAbortController = controller;
+
+    // Watchdog: abort kalau >10s tanpa token baru
+    let lastTick = Date.now();
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastTick > 10000) {
+        try { controller.abort(); } catch (_) {}
+        clearInterval(watchdog);
+      }
+    }, 2500);
+
+    try {
+      const res = await fetch(_api("/chat/stream"), {
+        method: "POST",
+        cache: "no-store",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: question, lang }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok || !res.body || !res.body.getReader) {
+        // fallback langsung ke /chat
+        throw new Error("stream not available");
+      }
+
+      const reader = res.body.getReader();
+      const proxyDelta = (txt) => {
+        lastTick = Date.now();
+        onDelta && onDelta(txt);
+      };
+
+      await readStreamNDJSON(reader, proxyDelta);
+      clearInterval(watchdog);
+      onDone && onDone(); // konten lengkap sudah di-accumulate oleh caller
+      return;
+    } catch (e) {
+      clearInterval(watchdog);
+      // Jika abort karena submit baru → jangan fallback
+      if (e && (e.name === "AbortError" || String(e).includes("AbortError"))) {
+        return;
+      }
+      // Fallback ke non-stream (/chat)
+      try {
+        const r = await fetch(_api("/chat"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: question, lang }),
+        });
+        const j = await r.json().catch(() => ({}));
+        const text = j?.answer ?? j?.content ?? j?.message ?? "";
+        if (text) onDelta && onDelta(String(text));
+        onDone && onDone(String(text));
+      } catch {
+        onDelta && onDelta("\n(Verbindungsproblem, bitte später erneut versuchen.)");
+        onDone && onDone("");
+      }
+    }
+  }
+
+  async function withRetry(fn, { retries = 1, baseDelay = 500 } = {}) {
     let last;
-    for (let i=0;i<=retries;i++){
-      try{ return await fn(); }
-      catch(e){ last = e; await new Promise(r=>setTimeout(r, baseDelay*(i+1))); }
+    for (let i = 0; i <= retries; i++) {
+      try {
+        return await fn();
+      } catch (e) {
+        last = e;
+        await new Promise((r) => setTimeout(r, baseDelay * (i + 1)));
+      }
     }
     throw last;
   }
 
   // (Opsional) tracking ringan; patuh consent kalau trackFE ada
-  function track(eventName, props={}, { essential=false } = {}){
-    if (typeof window.trackFE === "function"){
+  function track(eventName, props = {}, { essential = false } = {}) {
+    if (typeof window.trackFE === "function") {
       return window.trackFE(eventName, props, { essential });
     }
-    try{
+    try {
       window.dataLayer = window.dataLayer || [];
       const variant = localStorage.getItem("ab_variant") || "A";
       window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
-    }catch(_){}
-    try{
+    } catch (_) {}
+    try {
       fetch(_api("/track"), {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ event: eventName, props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props) })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: eventName,
+          props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props),
+        }),
       });
-    }catch(_){}
+    } catch (_) {}
   }
 
   /* ---------------------------
@@ -94,84 +177,86 @@
   const I18N = {
     greeting: {
       de: "Hallo! 👋 Was kann ich für Sie tun?<br>Bitte wählen Sie ein Thema:",
-      en: "Hello! 👋 What can I do for you?<br>Please choose a topic:"
+      en: "Hello! 👋 What can I do for you?<br>Please choose a topic:",
     },
-    header: {
-      de: "Chatte mit Wattson 🤖",
-      en: "Chat with Wattson 🤖"
-    },
+    header: { de: "Chatte mit Wattson 🤖", en: "Chat with Wattson 🤖" },
     robotBalloon: {
       de: "Hi! Ich bin Wattson, dein Planville-Assistent. Wobei darf ich helfen?",
-      en: "Hi! I'm Wattson, your Planville assistant. How can I help?"
+      en: "Hi! I'm Wattson, your Planville assistant. How can I help?",
     },
-    ctaBook: { de:"Jetzt Beratung buchen 👉", en:"Book a consultation 👉" },
+    ctaBook: { de: "Jetzt Beratung buchen 👉", en: "Book a consultation 👉" },
     priceMsg: {
-      de:"Die Preise für Photovoltaik beginnen bei ca. 7.000–15.000 €, abhängig von Größe & Standort. Für ein genaues Angebot:",
-      en:"PV prices typically range €7,000–€15,000 depending on size & location. For an exact quote:"
+      de: "Die Preise für Photovoltaik beginnen bei ca. 7.000–15.000 €, abhängig von Größe & Standort. Für ein genaues Angebot:",
+      en: "PV prices typically range €7,000–€15,000 depending on size & location. For an exact quote:",
     },
     unsure: {
-      de:`Ich bin mir nicht sicher. Bitte <a href="https://planville.de/kontakt" target="_blank" rel="noopener">📞 kontaktieren Sie unser Team hier</a>.`,
-      en:`I'm not sure about that. Please <a href="https://planville.de/kontakt" target="_blank" rel="noopener">📞 contact our team here</a>.`
+      de: `Ich bin mir nicht sicher. Bitte <a href="https://planville.de/kontakt" target="_blank" rel="noopener">📞 kontaktieren Sie unser Team hier</a>.`,
+      en: `I'm not sure about that. Please <a href="https://planville.de/kontakt" target="_blank" rel="noopener">📞 contact our team here</a>.`,
     },
-    askContactDone: (lang) => lang==="de"
-      ? "Danke! Unser Team meldet sich zeitnah. Möchtest du direkt einen Termin wählen?"
-      : "Thanks! Our team will contact you soon. Would you like to pick a time now?"
+    askContactDone: (lang) =>
+      lang === "de"
+        ? "Danke! Unser Team meldet sich zeitnah. Möchtest du direkt einen Termin wählen?"
+        : "Thanks! Our team will contact you soon. Would you like to pick a time now?",
   };
 
   const Q = {
-    install_location_q: { de:"Worauf soll die Solaranlage installiert werden?", en:"Where should the PV system be installed?" },
-    building_type_q:    { de:"Um welchen Gebäudetyp handelt es sich?",       en:"What is the building subtype?" },
-    self_occupied_q:    { de:"Bewohnst Du die Immobilie selbst?",            en:"Do you live in the property yourself?" },
-    ownership_q:        { de:"Bist Du Eigentümer:in der Immobilie?",         en:"Are you the owner of the property?" },
-    roof_type_q:        { de:"Was für ein Dach hast Du?",                    en:"What roof type do you have?" },
-    storage_interest_q: { de:"Möchtest Du einen Stromspeicher?",             en:"Would you like to add a battery storage?" },
-    install_timeline_q: { de:"Wann soll deine Anlage installiert werden?",   en:"When should the system be installed?" },
-    property_street_q:  { de:"Wo steht die Immobilie? (Straße + Hausnummer)",en:"Where is the property? (Street + No.)" },
-    contact_time_q:     { de:"Wann bist Du am besten zu erreichen?",         en:"When are you best reachable?" },
-    plz_q:              { de:"Wie lautet die PLZ?",                           en:"What is the ZIP code?" },
-    issues_q:           { de:"Gibt es Probleme?",                             en:"Any current issues?" },
-    heatingType_q:      { de:"Aktuelle Heizart?",                             en:"Current heating type?" }
+    install_location_q: {
+      de: "Worauf soll die Solaranlage installiert werden?",
+      en: "Where should the PV system be installed?",
+    },
+    building_type_q: {
+      de: "Um welchen Gebäudetyp handelt es sich?",
+      en: "What is the building subtype?",
+    },
+    self_occupied_q: {
+      de: "Bewohnst Du die Immobilie selbst?",
+      en: "Do you live in the property yourself?",
+    },
+    ownership_q: { de: "Bist Du Eigentümer:in der Immobilie?", en: "Are you the owner of the property?" },
+    roof_type_q: { de: "Was für ein Dach hast Du?", en: "What roof type do you have?" },
+    storage_interest_q: { de: "Möchtest Du einen Stromspeicher?", en: "Would you like to add a battery storage?" },
+    install_timeline_q: { de: "Wann soll deine Anlage installiert werden?", en: "When should the system be installed?" },
+    property_street_q: {
+      de: "Wo steht die Immobilie? (Straße + Hausnummer)",
+      en: "Where is the property? (Street + No.)",
+    },
+    contact_time_q: { de: "Wann bist Du am besten zu erreichen?", en: "When are you best reachable?" },
+    plz_q: { de: "Wie lautet die PLZ?", en: "What is the ZIP code?" },
+    issues_q: { de: "Gibt es Probleme?", en: "Any current issues?" },
+    heatingType_q: { de: "Aktuelle Heizart?", en: "Current heating type?" },
   };
 
   const productLabels = {
-    heatpump: { en:"Heat Pump 🔥", de:"Wärmepumpe 🔥" },
-    aircon:   { en:"Air Conditioner ❄️", de:"Klimaanlage ❄️" },
-    pv:       { en:"Photovoltaic System ☀️", de:"Photovoltaikanlage ☀️" },
-    roof:     { en:"Roof Renovation 🛠️", de:"Dachsanierung 🛠️" },
-    tenant:   { en:"Tenant Power 🏠", de:"Mieterstrom 🏠" },
-    window:   { en:"Windows 🪟", de:"Fenster 🪟" }
+    heatpump: { en: "Heat Pump 🔥", de: "Wärmepumpe 🔥" },
+    aircon: { en: "Air Conditioner ❄️", de: "Klimaanlage ❄️" },
+    pv: { en: "Photovoltaic System ☀️", de: "Photovoltaikanlage ☀️" },
+    roof: { en: "Roof Renovation 🛠️", de: "Dachsanierung 🛠️" },
+    tenant: { en: "Tenant Power 🏠", de: "Mieterstrom 🏠" },
+    window: { en: "Windows 🪟", de: "Fenster 🪟" },
   };
 
   const faqTexts = {
-    en: [
-      "How much does photovoltaics service cost?",
-      "What areas does Planville serve?",
-      "Can I book a consultation?"
-    ],
-    de: [
-      "Wie viel kostet eine Photovoltaikanlage?",
-      "Welche Regionen deckt Planville ab?",
-      "Kann ich eine Beratung buchen?"
-    ]
+    en: ["How much does photovoltaics service cost?", "What areas does Planville serve?", "Can I book a consultation?"],
+    de: ["Wie viel kostet eine Photovoltaikanlage?", "Welche Regionen deckt Planville ab?", "Kann ich eine Beratung buchen?"],
   };
 
   /* ---------------------------
      Element selectors
   ----------------------------*/
-  const chatLog      = document.getElementById("chatbot-log");
-  const form         = document.getElementById("chatbot-form");
-  const input        = document.getElementById("chatbot-input");
+  const chatLog = document.getElementById("chatbot-log");
+  const form = document.getElementById("chatbot-form");
+  const input = document.getElementById("chatbot-input");
   const typingBubble = document.getElementById("typing-bubble");
   const langSwitcher = document.getElementById("langSwitcher");
-  const pvHero       = document.querySelector(".pv-hero");
-  const pvBalloon    = document.querySelector(".pv-balloon span");
+  const pvHero = document.querySelector(".pv-hero");
+  const pvBalloon = document.querySelector(".pv-balloon span");
 
   let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
   let chatStarted = false;
   let __lastOrigin = "chat"; // 'chat' | 'faq'
 
-  function ensureViewportMeta(){
-    if (!document.querySelector('meta[name="viewport"]')){
+  function ensureViewportMeta() {
+    if (!document.querySelector('meta[name="viewport"]')) {
       const m = document.createElement("meta");
       m.name = "viewport";
       m.content = "width=device-width, initial-scale=1, viewport-fit=cover";
@@ -179,13 +264,13 @@
     }
   }
 
-  function isMobile(){
+  function isMobile() {
     return (
       window.matchMedia("(max-width: 768px)").matches ||
       (window.matchMedia("(pointer:coarse)").matches && window.innerWidth <= 1024)
     );
   }
-  function openLeadForm(productLabel, qualification){
+  function openLeadForm(productLabel, qualification) {
     const lang = (langSwitcher && langSwitcher.value) || "de";
     return openLeadFloatForm(productLabel, qualification, lang);
   }
@@ -193,7 +278,7 @@
   /* ---------------------------
      Init on load
   ----------------------------*/
-  window.addEventListener("load", function(){
+  window.addEventListener("load", function () {
     ensureViewportMeta();
 
     const selectedLang = localStorage.getItem("selectedLang") || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
@@ -206,53 +291,56 @@
     updateFAQ(selectedLang);
     updateHeaderOnly(selectedLang);
 
-    // ❌ Tidak ada cookie banner: logic ditarik.
-    // Jika kamu ingin aktifkan GA apabila user sudah pernah consent manual, panggil enableGTM() dari index.
-
+    // ❌ Tidak ada cookie banner
     showChatArea();
     chatStarted = true;
 
-    // Auto-greeting jika log kosong
-    const hasContent  = chatLog && chatLog.children && chatLog.children.length > 0;
+    // Auto-greeting jika kosong
+    const hasContent = chatLog && chatLog.children && chatLog.children.length > 0;
     const hasProducts = document.getElementById("product-options-block");
-    if (!hasContent && !hasProducts){
+    if (!hasContent && !hasProducts) {
       startGreetingFlow(true);
     }
   });
 
-  function hideChatArea(){
+  function hideChatArea() {
     const container = document.querySelector(".chatbot-container");
-    const sidebar   = document.querySelector(".faq-sidebar");
+    const sidebar = document.querySelector(".faq-sidebar");
     if (container) container.style.display = "none";
     if (sidebar) sidebar.style.display = "";
   }
-  function showChatArea(){
+  function showChatArea() {
     const container = document.querySelector(".chatbot-container");
     if (container) container.style.display = "flex";
     if (pvHero) pvHero.style.display = "none";
   }
 
   // Language switcher
-  if (langSwitcher){
-    langSwitcher.addEventListener("change", function(){
+  if (langSwitcher) {
+    langSwitcher.addEventListener("change", function () {
       const lang = langSwitcher.value;
       localStorage.setItem("selectedLang", lang);
       if (pvBalloon) pvBalloon.textContent = I18N.robotBalloon[lang];
       updateFAQ(lang);
-      if (chatStarted) updateUITexts(lang); else updateHeaderOnly(lang);
+      if (chatStarted) updateUITexts(lang);
+      else updateHeaderOnly(lang);
       track("language_switch", { lang: lang });
     });
   }
 
-  // Submit handler (streaming)
-  if (form){
-    form.addEventListener("submit", async function(e){
+  // Submit handler (streaming + watchdog + fallback)
+  if (form) {
+    form.addEventListener("submit", async function (e) {
       e.preventDefault();
       __lastOrigin = __lastOrigin || "chat";
-      if (!chatStarted){ chatStarted = true; showChatArea(); }
+      if (!chatStarted) {
+        chatStarted = true;
+        showChatArea();
+      }
 
       const question = (input.value || "").trim();
-      const selectedLang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
+      const selectedLang =
+        (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
       if (!question) return;
 
       appendMessage(question, "user");
@@ -261,88 +349,109 @@
       if (typingBubble) typingBubble.style.display = "block";
 
       // Intent sederhana
-      if (detectIntent(question)){
+      if (detectIntent(question)) {
         if (typingBubble) typingBubble.style.display = "none";
         const inFunnel = !!(window.Funnel && window.Funnel.state && window.Funnel.state.product);
-        if (inFunnel) offerContinueOrForm(selectedLang); else maybeOfferStartCTA(selectedLang);
+        if (inFunnel) offerContinueOrForm(selectedLang);
+        else maybeOfferStartCTA(selectedLang);
         __lastOrigin = "chat";
         return;
       }
 
       let finalReply = null;
+      let acc = "";
       const botLive = appendMessage("...", "bot");
 
-      try{
+      try {
         // Guardrails (opsional)
-        if (window.AIGuard && typeof window.AIGuard.ask === "function"){
+        if (window.AIGuard && typeof window.AIGuard.ask === "function") {
           const ai = await window.AIGuard.ask(question, selectedLang);
-          if (ai && ai.stop){
+          if (ai && ai.stop) {
             if (typingBubble) typingBubble.style.display = "none";
             if (botLive && botLive.firstChild) botLive.firstChild.textContent = "";
             nudgeToFormFromInterrupt(selectedLang);
             __lastOrigin = "chat";
             return;
           }
-          if (ai && ai.text){
+          if (ai && ai.text) {
             finalReply = String(ai.text).trim();
             if (typingBubble) typingBubble.style.display = "none";
-            if (botLive){ botLive.innerHTML = finalReply; }
+            if (botLive) {
+              botLive.innerHTML = finalReply;
+            }
             saveToHistory("bot", finalReply);
           }
         }
 
-        if (!finalReply){
-          // ⏱️ Abort request sebelumnya agar first-token lebih cepat di chat spam
-          if (window.__chatAbortController){ try{ window.__chatAbortController.abort(); }catch(_){} }
-          const controller = new AbortController();
-          window.__chatAbortController = controller;
-
+        if (!finalReply) {
           let gotFirst = false;
-          await withRetry(() => askAIStream({
-            question,
-            lang: selectedLang,
-            signal: controller.signal,
-            onDelta: function(_chunk, acc){
-              if (!gotFirst && typingBubble) { typingBubble.style.display = "none"; gotFirst = true; }
-              if (botLive){
-                botLive.innerHTML = acc;
-                chatLog.scrollTop = chatLog.scrollHeight;
-              }
-            },
-            onDone: function(full){
-              finalReply = (full || "").trim() || I18N.unsure[selectedLang];
-            }
-          }), { retries: 1 });
+          await withRetry(
+            () =>
+              askStreamWithFallback(
+                { question, lang: selectedLang },
+                {
+                  onDelta: function (delta) {
+                    if (!gotFirst && typingBubble) {
+                      typingBubble.style.display = "none";
+                      gotFirst = true;
+                    }
+                    acc += delta;
+                    if (botLive) {
+                      botLive.innerHTML = acc;
+                      chatLog.scrollTop = chatLog.scrollHeight;
+                    }
+                  },
+                  onDone: function (maybeFull) {
+                    const full = (maybeFull || acc || "").trim();
+                    finalReply = full || I18N.unsure[selectedLang];
+                  },
+                }
+              ),
+            { retries: 0 }
+          );
 
           if (!gotFirst && typingBubble) typingBubble.style.display = "none";
           saveToHistory("bot", finalReply);
         }
-      }catch(err){
-        try{
+      } catch (err) {
+        // Fallback terakhir (harusnya sudah ditangani askStreamWithFallback)
+        try {
           const res = await fetch(_api("/chat"), {
-            method:"POST",
-            headers:{ "Content-Type":"application/json" },
-            body: JSON.stringify({ message: question, lang: selectedLang })
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: question, lang: selectedLang }),
           });
           const data = await res.json();
           const replyRaw = data.answer !== undefined ? data.answer : data.reply;
-          finalReply = (typeof replyRaw === "string" ? replyRaw.trim() : "") || I18N.unsure[selectedLang];
-          if (botLive){ botLive.innerHTML = finalReply; }
-          else{ appendMessage(finalReply, "bot"); }
+          finalReply =
+            (typeof replyRaw === "string" ? replyRaw.trim() : "") || I18N.unsure[selectedLang];
+          if (botLive) {
+            botLive.innerHTML = finalReply;
+          } else {
+            appendMessage(finalReply, "bot");
+          }
           saveToHistory("bot", finalReply);
-        }catch(_){
-          if (botLive){ botLive.innerHTML = "Error while connecting to the API."; }
-          else{ appendMessage("Error while connecting to the API.", "bot"); }
-        }finally{
+        } catch (_) {
+          if (botLive) {
+            botLive.innerHTML = "Error while connecting to the API.";
+          } else {
+            appendMessage("Error while connecting to the API.", "bot");
+          }
+        } finally {
           if (typingBubble) typingBubble.style.display = "none";
         }
-      }finally{
+      } finally {
         const inFunnel = !!(window.Funnel && window.Funnel.state && window.Funnel.state.product);
-        const formShown = !!document.getElementById("lead-contact-form-chat") || !!document.getElementById("lead-float-overlay");
-        if (inFunnel){ offerContinueOrForm(selectedLang); }
-        else if (!formShown){ maybeOfferStartCTA(selectedLang); }
+        const formShown =
+          !!document.getElementById("lead-contact-form-chat") ||
+          !!document.getElementById("lead-float-overlay");
+        if (inFunnel) {
+          offerContinueOrForm(selectedLang);
+        } else if (!formShown) {
+          maybeOfferStartCTA(selectedLang);
+        }
         track("chat_message", { q_len: question.length, lang: selectedLang });
-        if (window.AIGuard && typeof window.AIGuard.maybeContinueFunnel === "function"){
+        if (window.AIGuard && typeof window.AIGuard.maybeContinueFunnel === "function") {
           window.AIGuard.maybeContinueFunnel();
         }
         __lastOrigin = "chat";
@@ -353,15 +462,15 @@
   /* ---------------------------
      Greeting / Header
   ----------------------------*/
-  function startGreetingFlow(withProducts){
+  function startGreetingFlow(withProducts) {
     const lang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
     updateUITexts(lang);
-    if (!withProducts){
+    if (!withProducts) {
       const productBlock = document.getElementById("product-options-block");
       if (productBlock) productBlock.remove();
     }
   }
-  function updateHeaderOnly(lang){
+  function updateHeaderOnly(lang) {
     const h = document.querySelector(".chatbot-header h1");
     if (h) h.innerText = I18N.header[lang];
   }
@@ -369,21 +478,22 @@
   /* ---------------------------
      Append / Save / Reset
   ----------------------------*/
-  function appendMessage(msg, sender, scroll){
+  function appendMessage(msg, sender, scroll) {
     if (!chatLog) return null;
     const msgDiv = document.createElement("div");
-    msgDiv.className = "chatbot-message " + (sender === "user" ? "user-message" : "bot-message");
+    msgDiv.className =
+      "chatbot-message " + (sender === "user" ? "user-message" : "bot-message");
     msgDiv.innerHTML = msg;
-    // ❌ No feedback buttons (👍👎) per boss request
+    // ❌ No feedback buttons (👍👎)
     chatLog.appendChild(msgDiv);
     if (scroll === undefined || scroll) chatLog.scrollTop = chatLog.scrollHeight;
     return msgDiv;
   }
-  function saveToHistory(sender, message){
+  function saveToHistory(sender, message) {
     chatHistory.push({ sender: sender, message: message });
     localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
   }
-  function resetChat(){
+  function resetChat() {
     localStorage.removeItem("chatHistory");
     chatHistory = [];
     if (chatLog) chatLog.innerHTML = "";
@@ -394,16 +504,16 @@
   /* ---------------------------
      FAQ
   ----------------------------*/
-  function updateFAQ(lang){
+  function updateFAQ(lang) {
     const list = document.getElementById("faq-list");
     const sidebar = document.querySelector(".faq-sidebar");
     if (!list || !sidebar) return;
     list.innerHTML = "";
-    const items = (faqTexts[lang] || faqTexts.de);
-    items.forEach(function(txt){
+    const items = faqTexts[lang] || faqTexts.de;
+    items.forEach(function (txt) {
       const li = document.createElement("li");
       li.innerText = txt;
-      li.addEventListener("click", function(){
+      li.addEventListener("click", function () {
         __lastOrigin = "faq";
         input.value = txt;
         form.dispatchEvent(new Event("submit"));
@@ -412,7 +522,7 @@
       list.appendChild(li);
     });
   }
-  function sendFAQ(text){
+  function sendFAQ(text) {
     __lastOrigin = "faq";
     input.value = text;
     form.dispatchEvent(new Event("submit"));
@@ -422,7 +532,7 @@
   /* ---------------------------
      UI Texts / Product options
   ----------------------------*/
-  function updateUITexts(lang){
+  function updateUITexts(lang) {
     const h = document.querySelector(".chatbot-header h1");
     if (h) h.innerText = I18N.header[lang];
     resetChat();
@@ -430,7 +540,7 @@
     showProductOptions();
   }
 
-  function showProductOptions(){
+  function showProductOptions() {
     const lang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
     const keys = ["pv", "aircon", "heatpump", "tenant", "roof", "window"];
     const existing = document.getElementById("product-options-block");
@@ -440,32 +550,37 @@
     container.className = "product-options";
     container.id = "product-options-block";
 
-    keys.forEach(function(key){
+    keys.forEach(function (key) {
       const label = productLabels[key] && productLabels[key][lang];
       if (!label) return;
       const button = document.createElement("button");
       button.innerText = label;
       button.className = "product-button";
       button.dataset.key = key;
-      button.onclick = function(){
-        document.querySelectorAll(".product-button.selected").forEach(function(b){ b.classList.remove("selected"); });
+      button.onclick = function () {
+        document
+          .querySelectorAll(".product-button.selected")
+          .forEach(function (b) {
+            b.classList.remove("selected");
+          });
         button.classList.add("selected");
         handleProductSelection(key);
       };
       container.appendChild(button);
     });
 
-    if (chatLog){
+    if (chatLog) {
       chatLog.appendChild(container);
       chatLog.scrollTop = chatLog.scrollHeight;
     }
   }
 
-  function handleProductSelection(key){
+  function handleProductSelection(key) {
     const lang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
     Funnel.reset();
     Funnel.state.product = key;
-    Funnel.state.productLabel = (productLabels[key] && productLabels[key][lang]) || key;
+    Funnel.state.productLabel =
+      (productLabels[key] && productLabels[key][lang]) || key;
     appendMessage(Funnel.state.productLabel, "user");
     askNext();
   }
@@ -473,25 +588,35 @@
   /* ---------------------------
      Intent detection (shortcuts)
   ----------------------------*/
-  function detectIntent(text){
+  function detectIntent(text) {
     const lower = (text || "").toLowerCase();
-    const lang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
-    if (lower.includes("harga") || lower.includes("kosten") || lower.includes("cost") || lower.includes("price")){
+    const lang =
+      (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
+    if (lower.includes("harga") || lower.includes("kosten") || lower.includes("cost") || lower.includes("price")) {
       appendMessage(I18N.priceMsg[lang], "bot");
       const cta = document.createElement("a");
       cta.href = "https://planville.de/kontakt/";
-      cta.target = "_blank"; cta.rel = "noopener";
+      cta.target = "_blank";
+      cta.rel = "noopener";
       cta.className = "cta-button";
-      cta.innerText = (lang === "de" ? "Jetzt Preis anfragen 👉" : "Request Price 👉");
+      cta.innerText = lang === "de" ? "Jetzt Preis anfragen 👉" : "Request Price 👉";
       if (chatLog) chatLog.appendChild(cta);
       offerFAQFollowup(lang);
       track("intent_preisinfo", { text: text, language: lang });
       return true;
     }
-    if (lower.includes("tertarik") || lower.includes("interested")){
-      appendMessage(lang==="de" ? "Super! Bitte füllen Sie dieses kurze Formular aus:" : "Great! Please fill out this short form:", "bot");
-      const label = window.Funnel && Funnel.state && Funnel.state.productLabel ? Funnel.state.productLabel : "Beratung";
-      const qual  = window.Funnel && Funnel.state ? (Funnel.state.data || {}) : {};
+    if (lower.includes("tertarik") || lower.includes("interested")) {
+      appendMessage(
+        lang === "de"
+          ? "Super! Bitte füllen Sie dieses kurze Formular aus:"
+          : "Great! Please fill out this short form:",
+        "bot"
+      );
+      const label =
+        window.Funnel && Funnel.state && Funnel.state.productLabel
+          ? Funnel.state.productLabel
+          : "Beratung";
+      const qual = window.Funnel && Funnel.state ? Funnel.state.data || {} : {};
       openLeadForm(label, qual);
       offerFAQFollowup(lang);
       return true;
@@ -502,19 +627,19 @@
   /* ---------------------------
      Quick UI helpers (chips/cards/input)
   ----------------------------*/
-  function askQuick(text, options, fieldKey){
+  function askQuick(text, options, fieldKey) {
     appendMessage(text, "bot");
     const group = document.createElement("div");
     group.className = "quick-group";
-    options.forEach(function(opt){
+    options.forEach(function (opt) {
       const b = document.createElement("button");
       b.className = "quick-btn";
       b.type = "button";
       b.innerText = opt.label;
-      b.onclick = function(){
+      b.onclick = function () {
         appendMessage(opt.label, "user");
         Funnel.state.data[fieldKey] = opt.value;
-        if (fieldKey === "timeline"){
+        if (fieldKey === "timeline") {
           if (typeof window.onTimelineSelected === "function") window.onTimelineSelected(opt.value);
           group.remove();
           return;
@@ -524,18 +649,23 @@
       };
       group.appendChild(b);
     });
-    if (chatLog){ chatLog.appendChild(group); chatLog.scrollTop = chatLog.scrollHeight; }
+    if (chatLog) {
+      chatLog.appendChild(group);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
   }
-  function askCards(text, options, fieldKey){
+  function askCards(text, options, fieldKey) {
     appendMessage(text, "bot");
     const grid = document.createElement("div");
     grid.className = "pv-card-grid";
-    options.forEach(function(opt){
+    options.forEach(function (opt) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "pv-card";
-      b.innerHTML = (opt.emoji ? '<div class="pv-card__emoji">'+opt.emoji+'</div>' : '') + '<div class="pv-card__label">'+opt.label+'</div>';
-      b.onclick = function(){
+      b.innerHTML =
+        (opt.emoji ? '<div class="pv-card__emoji">' + opt.emoji + "</div>" : "") +
+        '<div class="pv-card__label">' + opt.label + "</div>";
+      b.onclick = function () {
         appendMessage(opt.label, "user");
         Funnel.state.data[fieldKey] = opt.value;
         askNext();
@@ -543,9 +673,12 @@
       };
       grid.appendChild(b);
     });
-    if (chatLog){ chatLog.appendChild(grid); chatLog.scrollTop = chatLog.scrollHeight; }
+    if (chatLog) {
+      chatLog.appendChild(grid);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
   }
-  function askInput(text, fieldKey, validator){
+  function askInput(text, fieldKey, validator) {
     appendMessage(text, "bot");
     const inp = document.createElement("input");
     inp.className = "text-input";
@@ -556,37 +689,49 @@
     btn.innerText = "Weiter";
     const wrap = document.createElement("div");
     wrap.className = "quick-group";
-    wrap.appendChild(inp); wrap.appendChild(btn);
-    btn.onclick = function(){
+    wrap.appendChild(inp);
+    wrap.appendChild(btn);
+    btn.onclick = function () {
       const val = (inp.value || "").trim();
-      if (validator && !validator(val)){ alert("Bitte gültige Eingabe."); return; }
+      if (validator && !validator(val)) {
+        alert("Bitte gültige Eingabe.");
+        return;
+      }
       appendMessage(val, "user");
       Funnel.state.data[fieldKey] = val;
       askNext();
       wrap.remove();
     };
-    if (chatLog){ chatLog.appendChild(wrap); chatLog.scrollTop = chatLog.scrollHeight; }
+    if (chatLog) {
+      chatLog.appendChild(wrap);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
   }
 
-  function askContact(){
+  function askContact() {
     const lang = (langSwitcher && langSwitcher.value) || "de";
-    const opts = (lang==="de" ? ["0–3 Monate","3–6 Monate","6–12 Monate"] : ["0–3 months","3–6 months","6–12 months"])
-      .map(function(t,i){ return { label:t, value: (i===0?"0-3":i===1?"3-6":"6-12") }; });
+    const opts = (lang === "de" ? ["0–3 Monate", "3–6 Monate", "6–12 Monate"] : ["0–3 months", "3–6 months", "6–12 months"]).map(function (t, i) {
+      return { label: t, value: i === 0 ? "0-3" : i === 1 ? "3-6" : "6-12" };
+    });
     askQuick(Q.install_timeline_q[lang], opts, "timeline");
   }
 
-  function exitWith(reason){
+  function exitWith(reason) {
     const lang = (langSwitcher && langSwitcher.value) || "de";
     track("lead.exit", { product: Funnel.state.product, reason: reason });
     Funnel.state.data.qualified = false;
     Funnel.state.data.disqualifyReason = reason;
-    const txt = (lang==="de")
-      ? "Danke für dein Interesse! Aufgrund deiner Antworten können wir dir leider keine passende Dienstleistung anbieten. Schau aber gerne mal auf unserer Webseite vorbei!"
-      : "Thanks for your interest! Based on your answers we currently have no matching service. Feel free to check our website!";
+    const txt =
+      lang === "de"
+        ? "Danke für dein Interesse! Aufgrund deiner Antworten können wir dir leider keine passende Dienstleistung anbieten. Schau aber gerne mal auf unserer Webseite vorbei!"
+        : "Thanks for your interest! Based on your answers we currently have no matching service. Feel free to check our website!";
     const div = document.createElement("div");
     div.className = "exit-bubble";
     div.innerText = txt;
-    if (chatLog){ chatLog.appendChild(div); chatLog.scrollTop = chatLog.scrollHeight; }
+    if (chatLog) {
+      chatLog.appendChild(div);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
     if (typeof window.sendDisqualifiedLead === "function") window.sendDisqualifiedLead(reason);
   }
 
@@ -594,26 +739,40 @@
      Conversational Funnel
   ----------------------------*/
   const Funnel = {
-    state: { product:null, productLabel:null, data:{} },
-    reset: function(){ this.state = { product:null, productLabel:null, data:{} }; },
-    progressByFields: function(){
+    state: { product: null, productLabel: null, data: {} },
+    reset: function () {
+      this.state = { product: null, productLabel: null, data: {} };
+    },
+    progressByFields: function () {
       const d = this.state.data || {};
       const mapNeeded = {
-        pv: ["install_location","building_type","self_occupied","ownership","roof_type","storage_interest","install_timeline","property_street_number","contact_time_window"],
-        heatpump: ["building_type","living_area","heating_type","insulation","install_timeline","property_street_number","contact_time_window"],
-        aircon: ["building_type","rooms_count","cool_area","install_timeline","property_street_number","contact_time_window"],
-        roof: ["roof_type","area_sqm","issues","install_timeline","property_street_number","contact_time_window"],
-        tenant: ["building_type","units","ownership","install_timeline","property_street_number","contact_time_window"],
-        window: ["window_type","window_count","needs_balcony_door","window_accessory","install_timeline","plz","contact_time_window"]
+        pv: [
+          "install_location",
+          "building_type",
+          "self_occupied",
+          "ownership",
+          "roof_type",
+          "storage_interest",
+          "install_timeline",
+          "property_street_number",
+          "contact_time_window",
+        ],
+        heatpump: ["building_type", "living_area", "heating_type", "insulation", "install_timeline", "property_street_number", "contact_time_window"],
+        aircon: ["building_type", "rooms_count", "cool_area", "install_timeline", "property_street_number", "contact_time_window"],
+        roof: ["roof_type", "area_sqm", "issues", "install_timeline", "property_street_number", "contact_time_window"],
+        tenant: ["building_type", "units", "ownership", "install_timeline", "property_street_number", "contact_time_window"],
+        window: ["window_type", "window_count", "needs_balcony_door", "window_accessory", "install_timeline", "plz", "contact_time_window"],
       };
       const needed = mapNeeded[this.state.product] || [];
-      const answered = needed.filter(function(k){ return d[k] !== undefined && d[k] !== null && d[k] !== ""; }).length;
-      const percent = needed.length ? Math.min(100, Math.round((answered/needed.length)*100)) : 0;
+      const answered = needed.filter(function (k) {
+        return d[k] !== undefined && d[k] !== null && d[k] !== "";
+      }).length;
+      const percent = needed.length ? Math.min(100, Math.round((answered / needed.length) * 100)) : 0;
       this.progress(percent);
     },
-    progress: function(percent){
+    progress: function (percent) {
       let bar = document.getElementById("funnel-progress-bar");
-      if (!bar){
+      if (!bar) {
         const wrap = document.createElement("div");
         wrap.className = "funnel-progress";
         const inner = document.createElement("div");
@@ -622,138 +781,244 @@
         wrap.appendChild(inner);
         if (chatLog) chatLog.appendChild(wrap);
       }
-      requestAnimationFrame(function(){
+      requestAnimationFrame(function () {
         const el = document.getElementById("funnel-progress-bar");
         if (el) el.style.width = Math.min(100, Math.max(0, percent)) + "%";
       });
-    }
+    },
   };
   window.Funnel = Funnel;
 
-  function askNext(){
-    switch (Funnel.state.product){
-      case "pv":      askNextPV(); break;
-      case "heatpump":askNextHP(); break;
-      case "aircon":  askNextAC(); break;
-      case "roof":    askNextRoof(); break;
-      case "tenant":  askNextTenant(); break;
-      case "window":  askNextWindow(); break;
-      default: break;
+  function askNext() {
+    switch (Funnel.state.product) {
+      case "pv":
+        askNextPV();
+        break;
+      case "heatpump":
+        askNextHP();
+        break;
+      case "aircon":
+        askNextAC();
+        break;
+      case "roof":
+        askNextRoof();
+        break;
+      case "tenant":
+        askNextTenant();
+        break;
+      case "window":
+        askNextWindow();
+        break;
+      default:
+        break;
     }
   }
 
-  // ===== PV
-  function askNextPV(){ /* ... (isi sesuai versi kamu; tidak diubah) ... */
+  // ===== PV (versi ringkas — logika sama seperti punyamu)
+  function askNextPV() {
     const lang = (langSwitcher && langSwitcher.value) || "de";
     const d = Funnel.state.data;
     Funnel.progressByFields();
-    if (d.install_location === undefined){
-      const opts = (lang==="de"
-        ? [{label:"Einfamilienhaus",value:"einfamilienhaus",emoji:"🏠"},
-           {label:"Mehrfamilienhaus",value:"mehrfamilienhaus",emoji:"🏢"},
-           {label:"Gewerbeimmobilie",value:"gewerbeimmobilie",emoji:"🏭"},
-           {label:"Sonstiges",value:"sonstiges",emoji:"✨"}]
-        : [{label:"Single-family",value:"einfamilienhaus",emoji:"🏠"},
-           {label:"Multi-family",value:"mehrfamilienhaus",emoji:"🏢"},
-           {label:"Commercial",value:"gewerbeimmobilie",emoji:"🏭"},
-           {label:"Other",value:"sonstiges",emoji:"✨"}]);
-      askCards(Q.install_location_q[lang], opts, "install_location"); return;
+    if (d.install_location === undefined) {
+      const opts =
+        lang === "de"
+          ? [
+              { label: "Einfamilienhaus", value: "einfamilienhaus", emoji: "🏠" },
+              { label: "Mehrfamilienhaus", value: "mehrfamilienhaus", emoji: "🏢" },
+              { label: "Gewerbeimmobilie", value: "gewerbeimmobilie", emoji: "🏭" },
+              { label: "Sonstiges", value: "sonstiges", emoji: "✨" },
+            ]
+          : [
+              { label: "Single-family", value: "einfamilienhaus", emoji: "🏠" },
+              { label: "Multi-family", value: "mehrfamilienhaus", emoji: "🏢" },
+              { label: "Commercial", value: "gewerbeimmobilie", emoji: "🏭" },
+              { label: "Other", value: "sonstiges", emoji: "✨" },
+            ];
+      askCards(Q.install_location_q[lang], opts, "install_location");
+      return;
     }
-    if (d.install_location==="einfamilienhaus" && d.building_type === undefined){
-      const arr = (lang==="de" ? ["Freistehendes Haus","Doppelhaushälfte","Reihenmittelhaus","Reihenendhaus"] : ["Detached","Semi-detached","Mid-terrace","End-terrace"]);
-      askCards(Q.building_type_q[lang], arr.map(function(t){return {label:t,value:t.toLowerCase().replace(/\s/g,"_"),emoji:"🏡"};}), "building_type"); return;
+    if (d.install_location === "einfamilienhaus" && d.building_type === undefined) {
+      const arr =
+        lang === "de"
+          ? ["Freistehendes Haus", "Doppelhaushälfte", "Reihenmittelhaus", "Reihenendhaus"]
+          : ["Detached", "Semi-detached", "Mid-terrace", "End-terrace"];
+      askCards(
+        Q.building_type_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t.toLowerCase().replace(/\s/g, "_"), emoji: "🏡" };
+        }),
+        "building_type"
+      );
+      return;
     }
-    if (d.self_occupied === undefined){
-      askCards(Q.self_occupied_q[lang], (lang==="de"?["Ja","Nein"]:["Yes","No"]).map(function(t,i){return {label:t,value:i===0,emoji:i===0?"✅":"🚫"};}), "self_occupied"); return;
+    if (d.self_occupied === undefined) {
+      askCards(
+        Q.self_occupied_q[lang],
+        (lang === "de" ? ["Ja", "Nein"] : ["Yes", "No"]).map(function (t, i) {
+          return { label: t, value: i === 0, emoji: i === 0 ? "✅" : "🚫" };
+        }),
+        "self_occupied"
+      );
+      return;
     }
-    if (d.ownership === undefined){
-      askCards(Q.ownership_q[lang], (lang==="de"?["Ja","Nein"]:["Yes","No"]).map(function(t,i){return {label:t,value:i===0,emoji:i===0?"🔑":"🚫"};}), "ownership"); return;
+    if (d.ownership === undefined) {
+      askCards(
+        Q.ownership_q[lang],
+        (lang === "de" ? ["Ja", "Nein"] : ["Yes", "No"]).map(function (t, i) {
+          return { label: t, value: i === 0, emoji: i === 0 ? "🔑" : "🚫" };
+        }),
+        "ownership"
+      );
+      return;
     }
-    if (d.roof_type === undefined){
-      const arr = (lang==="de"?["Flachdach","Spitzdach","Andere"]:["Flat","Pitched","Other"]);
-      askCards(Q.roof_type_q[lang], arr.map(function(t){return {label:t,value:t.toLowerCase(),emoji:"🏚️"};}), "roof_type"); return;
+    if (d.roof_type === undefined) {
+      const arr = lang === "de" ? ["Flachdach", "Spitzdach", "Andere"] : ["Flat", "Pitched", "Other"];
+      askCards(
+        Q.roof_type_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t.toLowerCase(), emoji: "🏚️" };
+        }),
+        "roof_type"
+      );
+      return;
     }
-    if (d.storage_interest === undefined){
-      const arr = (lang==="de"?["Ja","Nein","Unsicher"]:["Yes","No","Unsure"]);
-      askCards(Q.storage_interest_q[lang], arr.map(function(t){return {label:t,value:t.toLowerCase(),emoji:"🔋"};}), "storage_interest"); return;
+    if (d.storage_interest === undefined) {
+      const arr = lang === "de" ? ["Ja", "Nein", "Unsicher"] : ["Yes", "No", "Unsure"];
+      askCards(
+        Q.storage_interest_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t.toLowerCase(), emoji: "🔋" };
+        }),
+        "storage_interest"
+      );
+      return;
     }
-    if (d.install_timeline === undefined){
-      const opts = (lang==="de"
-        ? [{label:"So schnell wie möglich",value:"asap"},{label:"In 1–3 Monaten",value:"1-3"},{label:"In 4–6 Monaten",value:"4-6"},{label:"In mehr als 6 Monaten",value:">6"}]
-        : [{label:"As soon as possible",value:"asap"},{label:"In 1–3 months",value:"1-3"},{label:"In 4–6 months",value:"4-6"},{label:"In more than 6 months",value:">6"}]);
-      askCards(Q.install_timeline_q[lang], opts, "install_timeline"); return;
+    if (d.install_timeline === undefined) {
+      const opts =
+        lang === "de"
+          ? [
+              { label: "So schnell wie möglich", value: "asap" },
+              { label: "In 1–3 Monaten", value: "1-3" },
+              { label: "In 4–6 Monaten", value: "4-6" },
+              { label: "In mehr als 6 Monaten", value: ">6" },
+            ]
+          : [
+              { label: "As soon as possible", value: "asap" },
+              { label: "In 1–3 months", value: "1-3" },
+              { label: "In 4–6 months", value: "4-6" },
+              { label: "In more than 6 months", value: ">6" },
+            ];
+      askCards(Q.install_timeline_q[lang], opts, "install_timeline");
+      return;
     }
-    if (d.property_street_number === undefined){
-      askInput(Q.property_street_q[lang], "property_street_number", function(v){ return String(v||"").trim().length > 3; }); return;
+    if (d.property_street_number === undefined) {
+      askInput(Q.property_street_q[lang], "property_street_number", function (v) {
+        return String(v || "").trim().length > 3;
+      });
+      return;
     }
-    if (d.contact_time_window === undefined){
-      const arr = (lang==="de"?["08:00–12:00","12:00–16:00","16:00–20:00","Egal / zu jeder Zeit"]:["08:00–12:00","12:00–16:00","16:00–20:00","Any time"]);
-      askCards(Q.contact_time_q[lang], arr.map(function(t){return {label:t,value:t};}), "contact_time_window"); return;
+    if (d.contact_time_window === undefined) {
+      const arr =
+        lang === "de"
+          ? ["08:00–12:00", "12:00–16:00", "16:00–20:00", "Egal / zu jeder Zeit"]
+          : ["08:00–12:00", "12:00–16:00", "16:00–20:00", "Any time"];
+      askCards(
+        Q.contact_time_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t };
+        }),
+        "contact_time_window"
+      );
+      return;
     }
-    if (!d.__done_perspective_summary){
+    if (!d.__done_perspective_summary) {
       d.__done_perspective_summary = true;
-      appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
+      appendMessage(
+        lang === "de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:",
+        "bot"
+      );
       if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
       openLeadForm(Funnel.state.productLabel || "Photovoltaik", d);
     }
   }
 
   // ===== Heatpump / Aircon / Roof / Tenant / Window
-  // (Semua flow di bawah ini sama seperti file kamu, tanpa perubahan selain pemanggilan openLeadForm)
-  function askNextHP(){ /* ...versi lengkapmu di sini (tanpa rating/cookie)... */ }
-  function askNextAC(){ /* ... */ }
-  function askNextRoof(){ /* ... */ }
-  function askNextTenant(){ /* ... */ }
-  function askNextWindow(){ /* ... */ }
+  // (Tetap seperti versi kamu; tak menyentuh konten selain call openLeadForm)
+  function askNextHP() { /* ... */ }
+  function askNextAC() { /* ... */ }
+  function askNextRoof() { /* ... */ }
+  function askNextTenant() { /* ... */ }
+  function askNextWindow() { /* ... */ }
 
   /* ---------------------------
      CTA helpers
   ----------------------------*/
-  function maybeOfferStartCTA(lang){
+  function maybeOfferStartCTA(lang) {
     removeInlineOptions();
     const wrap = document.createElement("div");
     wrap.className = "quick-group";
     wrap.id = "cta-start-wrap";
     const btnStart = document.createElement("button");
     btnStart.className = "quick-btn";
-    btnStart.textContent = (lang==="de" ? "Jetzt starten" : "Start now");
-    btnStart.onclick = function(){
-      const label = window.Funnel && Funnel.state && Funnel.state.productLabel ? Funnel.state.productLabel : "Beratung";
-      const qual  = window.Funnel && Funnel.state ? (Funnel.state.data || {}) : {};
+    btnStart.textContent = lang === "de" ? "Jetzt starten" : "Start now";
+    btnStart.onclick = function () {
+      const label =
+        window.Funnel && Funnel.state && Funnel.state.productLabel
+          ? Funnel.state.productLabel
+          : "Beratung";
+      const qual = window.Funnel && Funnel.state ? Funnel.state.data || {} : {};
       openLeadForm(label, qual);
       wrap.remove();
     };
     const btnMore = document.createElement("button");
     btnMore.className = "quick-btn";
-    btnMore.textContent = (lang==="de" ? "Weitere Frage stellen" : "Ask another question");
-    btnMore.onclick = function(){ wrap.remove(); };
-    wrap.appendChild(btnStart); wrap.appendChild(btnMore);
-    if (chatLog){ chatLog.appendChild(wrap); chatLog.scrollTop = chatLog.scrollHeight; }
+    btnMore.textContent = lang === "de" ? "Weitere Frage stellen" : "Ask another question";
+    btnMore.onclick = function () {
+      wrap.remove();
+    };
+    wrap.appendChild(btnStart);
+    wrap.appendChild(btnMore);
+    if (chatLog) {
+      chatLog.appendChild(wrap);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
   }
-  function offerFAQFollowup(lang){ maybeOfferStartCTA(lang); }
-  function offerContinueOrForm(lang){
+  function offerFAQFollowup(lang) {
+    maybeOfferStartCTA(lang);
+  }
+  function offerContinueOrForm(lang) {
     removeInlineOptions();
     const wrap = document.createElement("div");
     wrap.className = "quick-group";
     wrap.id = "continue-or-form";
     const cont = document.createElement("button");
     cont.className = "quick-btn";
-    cont.textContent = (lang==="de" ? "Weiter im Check" : "Continue the check");
-    cont.onclick = function(){ wrap.remove(); askNext(); };
+    cont.textContent = lang === "de" ? "Weiter im Check" : "Continue the check";
+    cont.onclick = function () {
+      wrap.remove();
+      askNext();
+    };
     const formBtn = document.createElement("button");
     formBtn.className = "quick-btn";
-    formBtn.textContent = (lang==="de" ? "Formular ausfüllen" : "Fill the form");
-    formBtn.onclick = function(){
-      const label = window.Funnel && Funnel.state && Funnel.state.productLabel ? Funnel.state.productLabel : "Beratung";
-      const qual  = window.Funnel && Funnel.state ? (Funnel.state.data || {}) : {};
+    formBtn.textContent = lang === "de" ? "Formular ausfüllen" : "Fill the form";
+    formBtn.onclick = function () {
+      const label =
+        window.Funnel && Funnel.state && Funnel.state.productLabel
+          ? Funnel.state.productLabel
+          : "Beratung";
+      const qual = window.Funnel && Funnel.state ? Funnel.state.data || {} : {};
       openLeadForm(label, qual);
       wrap.remove();
     };
-    wrap.appendChild(cont); wrap.appendChild(formBtn);
-    if (chatLog){ chatLog.appendChild(wrap); chatLog.scrollTop = chatLog.scrollHeight; }
+    wrap.appendChild(cont);
+    wrap.appendChild(formBtn);
+    if (chatLog) {
+      chatLog.appendChild(wrap);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
   }
-  function removeInlineOptions(){
-    ["cta-start-wrap","continue-or-form"].forEach(function(id){
+  function removeInlineOptions() {
+    ["cta-start-wrap", "continue-or-form"].forEach(function (id) {
       const x = document.getElementById(id);
       if (x) x.remove();
     });
@@ -762,13 +1027,12 @@
   /* ---------------------------
      Floating Modal (popup)
   ----------------------------*/
-  function openLeadFloatForm(productLabel, qualification, lang){
+  function openLeadFloatForm(productLabel, qualification, lang) {
     if (document.getElementById("lead-float-overlay")) return;
 
     const ov = document.createElement("div");
     ov.id = "lead-float-overlay";
-    ov.innerHTML =
-`<style>
+    ov.innerHTML = `<style>
 #lead-float-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999}
 #lead-float{position:relative;background:#fff;color:#111;max-width:520px;width:92%;border-radius:16px;padding:18px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
 #lead-float h3{margin:0 0 10px 0;font-size:18px}
@@ -785,26 +1049,26 @@
 </style>
 <div id="lead-float" role="dialog" aria-modal="true">
   <button type="button" id="lf_close" aria-label="Close">×</button>
-  <h3>${lang==="de"?"Kurzes Formular":"Quick form"}</h3>
+  <h3>${lang === "de" ? "Kurzes Formular" : "Quick form"}</h3>
   <form id="lead-float-form">
-    <input type="text" id="lf_name"  placeholder="${lang==="de"?"Name":"Name"}" required>
-    <input type="text" id="lf_addr"  placeholder="${lang==="de"?"Adresse (Straße + Nr.)":"Address (Street + No.)"}" required>
-    <input type="text" id="lf_plz"   placeholder="${lang==="de"?"PLZ":"ZIP"}" required>
-    <input type="tel"  id="lf_phone" placeholder="${lang==="de"?"Telefonnummer":"Phone number"}" required>
+    <input type="text" id="lf_name"  placeholder="${lang === "de" ? "Name" : "Name"}" required>
+    <input type="text" id="lf_addr"  placeholder="${lang === "de" ? "Adresse (Straße + Nr.)" : "Address (Street + No.)"}" required>
+    <input type="text" id="lf_plz"   placeholder="${lang === "de" ? "PLZ" : "ZIP"}" required>
+    <input type="tel"  id="lf_phone" placeholder="${lang === "de" ? "Telefonnummer" : "Phone number"}" required>
     <select id="lf_best" required>
-      <option value="">${lang==="de"?"Am besten erreichbar":"Best time to reach"}</option>
-      <option>08:00–12:00</option><option>12:00–16:00</option><option>16:00–20:00</option><option>${lang==="de"?"Egal / zu jeder Zeit":"Any time"}</option>
+      <option value="">${lang === "de" ? "Am besten erreichbar" : "Best time to reach"}</option>
+      <option>08:00–12:00</option><option>12:00–16:00</option><option>16:00–20:00</option><option>${lang === "de" ? "Egal / zu jeder Zeit" : "Any time"}</option>
     </select>
     <label style="display:flex;gap:.6rem;align-items:flex-start;font-size:12px;line-height:1.35">
       <input type="checkbox" id="lf_ok" checked required style="margin-top:2px">
-      <span>${lang==="de"
+      <span>${lang === "de"
         ? 'Ich stimme der Kontaktaufnahme und Verarbeitung meiner Daten gemäß <a href="https://planville.de/datenschutz/" target="_blank">Datenschutzerklärung</a> zu.'
         : 'I agree to be contacted and for my data to be processed according to the <a href="https://planville.de/datenschutz/" target="_blank">privacy policy</a>.'}
       </span>
     </label>
     <div class="actions">
-      <button type="button" class="ghost" id="lf_cancel">${lang==="de"?"Abbrechen":"Cancel"}</button>
-      <button type="submit" class="cta" id="lf_submit">${lang==="de"?"Absenden":"Submit"}</button>
+      <button type="button" class="ghost" id="lf_cancel">${lang === "de" ? "Abbrechen" : "Cancel"}</button>
+      <button type="submit" class="cta" id="lf_submit">${lang === "de" ? "Absenden" : "Submit"}</button>
     </div>
   </form>
 </div>`;
@@ -813,55 +1077,78 @@
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    try{
-      if (qualification && qualification.property_street_number){
+    try {
+      if (qualification && qualification.property_street_number) {
         ov.querySelector("#lf_addr").value = String(qualification.property_street_number);
       }
-      if (qualification && qualification.plz){
+      if (qualification && qualification.plz) {
         ov.querySelector("#lf_plz").value = String(qualification.plz);
       }
-      if (qualification && qualification.contact_time_window){
+      if (qualification && qualification.contact_time_window) {
         ov.querySelector("#lf_best").value = String(qualification.contact_time_window);
       }
-    }catch(_){}
+    } catch (_) {}
 
-    function close(){
+    function close() {
       document.body.style.overflow = prevOverflow || "";
       ov.remove();
     }
     ov.querySelector("#lf_close").onclick = close;
     ov.querySelector("#lf_cancel").onclick = close;
-    ov.addEventListener("click", function(e){ if (e.target && e.target.id === "lead-float-overlay") close(); });
-    document.addEventListener("keydown", function esc(e){ if (e.key === "Escape"){ close(); document.removeEventListener("keydown", esc); } });
+    ov.addEventListener("click", function (e) {
+      if (e.target && e.target.id === "lead-float-overlay") close();
+    });
+    document.addEventListener("keydown", function esc(e) {
+      if (e.key === "Escape") {
+        close();
+        document.removeEventListener("keydown", esc);
+      }
+    });
 
-    ov.querySelector("#lead-float-form").addEventListener("submit", async function(e){
+    ov.querySelector("#lead-float-form").addEventListener("submit", async function (e) {
       e.preventDefault();
-      const name  = ov.querySelector("#lf_name").value.trim();
-      const addr  = ov.querySelector("#lf_addr").value.trim();
-      const plz   = ov.querySelector("#lf_plz").value.trim();
+      const name = ov.querySelector("#lf_name").value.trim();
+      const addr = ov.querySelector("#lf_addr").value.trim();
+      const plz = ov.querySelector("#lf_plz").value.trim();
       const phone = ov.querySelector("#lf_phone").value.trim();
-      const best  = ov.querySelector("#lf_best").value.trim();
-      const ok    = ov.querySelector("#lf_ok").checked;
-      if (!ok){ alert(lang==="de"?"Bitte Zustimmung erteilen.":"Please give consent."); return; }
+      const best = ov.querySelector("#lf_best").value.trim();
+      const ok = ov.querySelector("#lf_ok").checked;
+      if (!ok) {
+        alert(lang === "de" ? "Bitte Zustimmung erteilen." : "Please give consent.");
+        return;
+      }
 
       const qual = Object.assign({}, qualification || {}, {
-        property_street_number: addr, plz: plz, contact_time_window: best
+        property_street_number: addr,
+        plz: plz,
+        contact_time_window: best,
       });
 
-      try{
-        if (typeof window.sendLeadToBackend === "function"){
+      try {
+        if (typeof window.sendLeadToBackend === "function") {
           await window.sendLeadToBackend({
             productLabel: productLabel || "Beratung",
-            name: name, address: addr, email: "—", phone: phone,
+            name: name,
+            address: addr,
+            email: "—",
+            phone: phone,
             origin: (__lastOrigin || "chat") + "-float",
-            qualification: qual
+            qualification: qual,
           });
         }
-        appendMessage(lang==="de" ? "Danke! Wir melden uns in Kürze." : "Thank you! We’ll contact you shortly.", "bot");
-      }catch(err){
+        appendMessage(
+          lang === "de" ? "Danke! Wir melden uns in Kürze." : "Thank you! We’ll contact you shortly.",
+          "bot"
+        );
+      } catch (err) {
         console.error(err);
-        appendMessage(lang==="de" ? "Senden fehlgeschlagen. Bitte später erneut versuchen." : "Submission failed. Please try again later.", "bot");
-      }finally{
+        appendMessage(
+          lang === "de"
+            ? "Senden fehlgeschlagen. Bitte später erneut versuchen."
+            : "Submission failed. Please try again later.",
+          "bot"
+        );
+      } finally {
         close();
       }
     });
@@ -870,24 +1157,31 @@
   /* ---------------------------
      Nudge (interrupt)
   ----------------------------*/
-  function nudgeToFormFromInterrupt(lang){
-    try{
+  function nudgeToFormFromInterrupt(lang) {
+    try {
       if (document.getElementById("lead-contact-form-chat") || document.getElementById("lead-float-overlay")) return;
-      const productLabel = (window.Funnel && Funnel.state && Funnel.state.productLabel) ? Funnel.state.productLabel : "Photovoltaik";
-      const qualification = (window.Funnel && Funnel.state) ? (Funnel.state.data || {}) : {};
-      const msg = (lang==="de") ? "Alles klar! Dann bräuchten wir nur noch deine Kontaktdaten:" : "All right! We just need your contact details:";
+      const productLabel =
+        window.Funnel && Funnel.state && Funnel.state.productLabel
+          ? Funnel.state.productLabel
+          : "Photovoltaik";
+      const qualification = window.Funnel && Funnel.state ? Funnel.state.data || {} : {};
+      const msg =
+        lang === "de"
+          ? "Alles klar! Dann bräuchten wir nur noch deine Kontaktdaten:"
+          : "All right! We just need your contact details:";
       appendMessage(msg, "bot");
-      if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(qualification);
+      if (typeof window.showSummaryFromFunnel === "function")
+        window.showSummaryFromFunnel(qualification);
       openLeadForm(productLabel, qualification);
-    }catch(_){}
+    } catch (_) {}
   }
 
-  window.startGreetingFlow   = startGreetingFlow;
-  window.showProductOptions  = showProductOptions;
-  window.appendMessage       = appendMessage;
-  window.sendFAQ             = sendFAQ;
+  window.startGreetingFlow = startGreetingFlow;
+  window.showProductOptions = showProductOptions;
+  window.appendMessage = appendMessage;
+  window.sendFAQ = sendFAQ;
 
   // A/B variant sticky
-  const AB = { variant: localStorage.getItem("ab_variant") || (Math.random() < 0.5 ? "A":"B") };
+  const AB = { variant: localStorage.getItem("ab_variant") || (Math.random() < 0.5 ? "A" : "B") };
   localStorage.setItem("ab_variant", AB.variant);
 })();
