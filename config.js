@@ -1,10 +1,10 @@
 // ================================
-// WATTSON — Global Config (FINAL)
-// Same-origin: BASE_API_URL kosong → /chat,/lead lewat vercel.json
+// WATTSON — Global Config (FINAL, no-rewrites)
+// FE memanggil backend langsung via BASE_API_URL
 // ================================
 window.CONFIG = {
-  // ✅ Backend base (biarkan kosong agar lewat rewrites Vercel)
-  BASE_API_URL: "",
+  // ✅ Backend base (langsung ke Railway)
+  BASE_API_URL: "https://web-production-b363.up.railway.app",
 
   // 🌐 Kalender booking (opsional)
   CALENDAR_URL: "",
@@ -45,24 +45,13 @@ window.CONFIG = {
     chat_stream: "/chat/stream",
     lead: "/lead",
     track: "/track"
-  },
-
-  // 🛡️ Opsi rewrite guard (dipakai patched guardrails)
-  API_REWRITE_ALLOW: [
-    "^/?(ai)(/|$)",
-    "^/?(chat)(/|$)",
-    "^/?(lead)(/|$)",
-    "^/?(track)(/|$)"
-  ],
-  API_REWRITE_DENY: [
-    "^/?(assets|static|img|images|icons)(/|$)"
-  ]
+  }
 };
 
 /**
  * 🔗 Helper URL API aman.
  * Pakai: fetch(_api("/lead"), {...})
- * - Jika BASE_API_URL kosong → hasil "/lead" (same-origin; lewat vercel.json)
+ * - Jika BASE_API_URL kosong → hasil "/lead" (same-origin)
  * - Jika diisi http(s) → hasil "https://host/lead"
  */
 window._api = window._api || function(path = "") {
