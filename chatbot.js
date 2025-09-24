@@ -1,4 +1,4 @@
-<script>
+
 /* === WATTSON CHATBOT — LIGHT-ONLY DROP-IN (2025-09-24) ===
    - Streaming cepat & tangguh (NDJSON/Plaintext) + watchdog + fallback
    - Abort-on-new submit, keepalive, no-store
@@ -1118,4 +1118,4 @@
   const AB = { variant: localStorage.getItem("ab_variant") || (Math.random() < 0.5 ? "A" : "B") };
   localStorage.setItem("ab_variant", AB.variant);
 })();
-</script>
+
