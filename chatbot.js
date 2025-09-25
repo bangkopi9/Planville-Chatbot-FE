@@ -1,4 +1,3 @@
-
 /* === WATTSON CHATBOT — LIGHT-ONLY DROP-IN (2025-09-24) ===
    - Streaming cepat & tangguh (NDJSON/Plaintext) + watchdog + fallback
    - Abort-on-new submit, keepalive, no-store
@@ -222,6 +221,12 @@
     de: ["Wie viel kostet eine Photovoltaikanlage?","Welche Regionen deckt Planville ab?","Kann ich eine Beratung buchen?"],
   };
 
+  // NEW: localized placeholder for the main chat input
+  const PLACEHOLDER = {
+    de: "Frage eingeben...",
+    en: "Type your question..."
+  };
+
   /* ---------------------------
      Element selectors
   ----------------------------*/
@@ -233,20 +238,23 @@
   const pvHero       = document.querySelector(".pv-hero");
   const pvBalloon    = document.querySelector(".pv-balloon span");
 
-   // ==== Enter-to-submit untuk input chat utama (IME-safe) ====
-let __isComposing = false;
-input?.addEventListener("compositionstart", () => { __isComposing = true; });
-input?.addEventListener("compositionend",   () => { __isComposing = false; });
+  // ==== Enter-to-submit untuk input chat utama (IME-safe) ====
+  let __isComposing = false;
+  input?.addEventListener("compositionstart", () => { __isComposing = true; });
+  input?.addEventListener("compositionend",   () => { __isComposing = false; });
 
-input?.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !__isComposing) {
-    // tekan Enter -> submit form (tanpa newline)
-    e.preventDefault();
-    // hindari double submit, pakai API native supaya konsisten cross-browser
-    form?.requestSubmit?.();
-  }
-});
-
+  // UPDATED: robust submit + mobile polish
+  input?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !__isComposing) {
+      e.preventDefault();
+      if (form?.requestSubmit) {
+        form.requestSubmit();
+      } else if (form) {
+        form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      }
+      try { if (/Mobi|Android/i.test(navigator.userAgent)) input.blur(); } catch(_) {}
+    }
+  });
 
   let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
   let chatStarted = false;
@@ -280,6 +288,9 @@ input?.addEventListener("keydown", (e) => {
 
     const selectedLang = localStorage.getItem("selectedLang") || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
     if (langSwitcher) langSwitcher.value = selectedLang;
+
+    // NEW: set main input placeholder on load
+    if (input) input.placeholder = PLACEHOLDER[selectedLang] || PLACEHOLDER.de;
 
     const oldBalloon = document.querySelector(".pv-balloon");
     if (oldBalloon) oldBalloon.remove();
@@ -317,6 +328,9 @@ input?.addEventListener("keydown", (e) => {
       localStorage.setItem("selectedLang", lang);
       if (pvBalloon) pvBalloon.textContent = I18N.robotBalloon[lang];
       updateFAQ(lang);
+      // NEW: update main input placeholder on language change
+      if (input) input.placeholder = PLACEHOLDER[lang] || PLACEHOLDER.de;
+
       if (chatStarted) updateUITexts(lang); else updateHeaderOnly(lang);
       track("language_switch", { lang: lang });
     });
@@ -602,6 +616,7 @@ input?.addEventListener("keydown", (e) => {
     });
     if (chatLog) { chatLog.appendChild(group); chatLog.scrollTop = chatLog.scrollHeight; }
   }
+
   function askCards(text, options, fieldKey) {
     appendMessage(text, "bot");
     const grid = document.createElement("div");
@@ -610,7 +625,9 @@ input?.addEventListener("keydown", (e) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "pv-card";
-      b.innerHTML = (opt.emoji ? '<div class="pv-card__emoji">' + opt.emoji + "</div>" : "") + '<div class="pv-card__label">' + opt.label + "</div>";
+      b.innerHTML =
+        (opt.emoji ? '<div class="pv-card__emoji">' + opt.emoji + "</div>" : "") +
+        '<div class="pv-card__label">' + opt.label + "</div>";
       b.onclick = function () {
         appendMessage(opt.label, "user");
         Funnel.state.data[fieldKey] = opt.value;
@@ -621,55 +638,65 @@ input?.addEventListener("keydown", (e) => {
     });
     if (chatLog) { chatLog.appendChild(grid); chatLog.scrollTop = chatLog.scrollHeight; }
   }
- function askInput(text, fieldKey, validator) {
-  appendMessage(text, "bot");
 
-  const inp = document.createElement("input");
-  inp.className = "text-input";
-  inp.placeholder = "Antwort eingeben...";
+  // UPDATED: localized askInput
+  function askInput(text, fieldKey, validator) {
+    appendMessage(text, "bot");
 
-  const btn = document.createElement("button");
-  btn.className = "quick-btn";
-  btn.type = "button";
-  btn.innerText = "Weiter";
+    const _lang = (langSwitcher && langSwitcher.value) || "de";
 
-  const wrap = document.createElement("div");
-  wrap.className = "quick-group";
-  wrap.appendChild(inp); wrap.appendChild(btn);
+    const inp = document.createElement("input");
+    inp.className = "text-input";
+    inp.placeholder = _lang === "de" ? "Antwort eingeben..." : "Type your answer...";
 
-  // — Enter-to-continue (IME-safe)
-  let composing = false;
-  inp.addEventListener("compositionstart", () => { composing = true; });
-  inp.addEventListener("compositionend",   () => { composing = false; });
-  inp.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !composing) {
-      e.preventDefault();
-      btn.click();             // samakan perilaku dengan tombol "Weiter"
-    }
-  });
+    const btn = document.createElement("button");
+    btn.className = "quick-btn";
+    btn.type = "button";
+    btn.innerText = _lang === "de" ? "Weiter" : "Continue";
 
-  btn.onclick = function () {
-    const val = (inp.value || "").trim();
-    if (validator && !validator(val)) { alert("Bitte gültige Eingabe."); return; }
-    appendMessage(val, "user");
-    Funnel.state.data[fieldKey] = val;
+    const wrap = document.createElement("div");
+    wrap.className = "quick-group";
+    wrap.appendChild(inp);
+    wrap.appendChild(btn);
 
-    // UX mobile: tutup keyboard biar terasa cepat
-    try { if (/Mobi|Android/i.test(navigator.userAgent)) inp.blur(); } catch (_){}
+    // — Enter-to-continue (IME-safe)
+    let composing = false;
+    inp.addEventListener("compositionstart", () => { composing = true; });
+    inp.addEventListener("compositionend",   () => { composing = false; });
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !composing) {
+        e.preventDefault();
+        btn.click(); // samakan perilaku dengan tombol
+      }
+    });
 
-    askNext();                 // >>> lanjut ke langkah berikutnya
-    wrap.remove();
-  };
+    btn.onclick = function () {
+      const val = (inp.value || "").trim();
+      if (validator && !validator(val)) {
+        alert(_lang === "de" ? "Bitte gültige Eingabe." : "Please enter a valid value.");
+        return;
+      }
+      appendMessage(val, "user");
+      Funnel.state.data[fieldKey] = val;
 
-  if (chatLog) { chatLog.appendChild(wrap); chatLog.scrollTop = chatLog.scrollHeight; }
-  inp.focus();                 // langsung fokus supaya user tinggal tekan Enter
-}
+      // UX mobile: tutup keyboard biar terasa cepat
+      try { if (/Mobi|Android/i.test(navigator.userAgent)) inp.blur(); } catch (_){}
 
+      askNext();                 // >>> lanjut ke langkah berikutnya
+      wrap.remove();
+    };
+
+    if (chatLog) { chatLog.appendChild(wrap); chatLog.scrollTop = chatLog.scrollHeight; }
+    inp.focus();                 // langsung fokus supaya user tinggal tekan Enter
+  }
+
+  // UPDATED: tidy askContact
   function askContact() {
     const lang = (langSwitcher && langSwitcher.value) || "de";
-    const opts = (lang === "de" ? ["0–3 Monate","3–6 Monate","6–12 Monate"] : ["0–3 months","3–6 months","6–12 months"])
-      .map(function (t,i){ return { label: t, value: (i===0 ? "0-3" : i===1 ? "3-6" : "6-12")
- }; });
+    const opts = (lang === "de"
+      ? ["0–3 Monate","3–6 Monate","6–12 Monate"]
+      : ["0–3 months","3–6 months","6–12 months"]
+    ).map((t, i) => ({ label: t, value: i === 0 ? "0-3" : i === 1 ? "3-6" : "6-12" }));
     askQuick(Q.install_timeline_q[lang], opts, "timeline");
   }
 
@@ -1155,4 +1182,3 @@ input?.addEventListener("keydown", (e) => {
   const AB = { variant: localStorage.getItem("ab_variant") || (Math.random() < 0.5 ? "A" : "B") };
   localStorage.setItem("ab_variant", AB.variant);
 })();
-
