@@ -233,6 +233,21 @@
   const pvHero       = document.querySelector(".pv-hero");
   const pvBalloon    = document.querySelector(".pv-balloon span");
 
+   // ==== Enter-to-submit untuk input chat utama (IME-safe) ====
+let __isComposing = false;
+input?.addEventListener("compositionstart", () => { __isComposing = true; });
+input?.addEventListener("compositionend",   () => { __isComposing = false; });
+
+input?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !__isComposing) {
+    // tekan Enter -> submit form (tanpa newline)
+    e.preventDefault();
+    // hindari double submit, pakai API native supaya konsisten cross-browser
+    form?.requestSubmit?.();
+  }
+});
+
+
   let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
   let chatStarted = false;
   let __lastOrigin = "chat"; // 'chat' | 'faq'
@@ -606,33 +621,55 @@
     });
     if (chatLog) { chatLog.appendChild(grid); chatLog.scrollTop = chatLog.scrollHeight; }
   }
-  function askInput(text, fieldKey, validator) {
-    appendMessage(text, "bot");
-    const inp = document.createElement("input");
-    inp.className = "text-input";
-    inp.placeholder = "Antwort eingeben...";
-    const btn = document.createElement("button");
-    btn.className = "quick-btn";
-    btn.type = "button";
-    btn.innerText = "Weiter";
-    const wrap = document.createElement("div");
-    wrap.className = "quick-group";
-    wrap.appendChild(inp); wrap.appendChild(btn);
-    btn.onclick = function () {
-      const val = (inp.value || "").trim();
-      if (validator && !validator(val)) { alert("Bitte gültige Eingabe."); return; }
-      appendMessage(val, "user");
-      Funnel.state.data[fieldKey] = val;
-      askNext();
-      wrap.remove();
-    };
-    if (chatLog) { chatLog.appendChild(wrap); chatLog.scrollTop = chatLog.scrollHeight; }
-  }
+ function askInput(text, fieldKey, validator) {
+  appendMessage(text, "bot");
+
+  const inp = document.createElement("input");
+  inp.className = "text-input";
+  inp.placeholder = "Antwort eingeben...";
+
+  const btn = document.createElement("button");
+  btn.className = "quick-btn";
+  btn.type = "button";
+  btn.innerText = "Weiter";
+
+  const wrap = document.createElement("div");
+  wrap.className = "quick-group";
+  wrap.appendChild(inp); wrap.appendChild(btn);
+
+  // — Enter-to-continue (IME-safe)
+  let composing = false;
+  inp.addEventListener("compositionstart", () => { composing = true; });
+  inp.addEventListener("compositionend",   () => { composing = false; });
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !composing) {
+      e.preventDefault();
+      btn.click();             // samakan perilaku dengan tombol "Weiter"
+    }
+  });
+
+  btn.onclick = function () {
+    const val = (inp.value || "").trim();
+    if (validator && !validator(val)) { alert("Bitte gültige Eingabe."); return; }
+    appendMessage(val, "user");
+    Funnel.state.data[fieldKey] = val;
+
+    // UX mobile: tutup keyboard biar terasa cepat
+    try { if (/Mobi|Android/i.test(navigator.userAgent)) inp.blur(); } catch (_){}
+
+    askNext();                 // >>> lanjut ke langkah berikutnya
+    wrap.remove();
+  };
+
+  if (chatLog) { chatLog.appendChild(wrap); chatLog.scrollTop = chatLog.scrollHeight; }
+  inp.focus();                 // langsung fokus supaya user tinggal tekan Enter
+}
 
   function askContact() {
     const lang = (langSwitcher && langSwitcher.value) || "de";
     const opts = (lang === "de" ? ["0–3 Monate","3–6 Monate","6–12 Monate"] : ["0–3 months","3–6 months","6–12 months"])
-      .map(function (t,i){ return { label: t, value: (i===0?"0-3":i===1?"3-6":"6-12") }; });
+      .map(function (t,i){ return { label: t, value: (i===0 ? "0-3" : i===1 ? "3-6" : "6-12")
+ }; });
     askQuick(Q.install_timeline_q[lang], opts, "timeline");
   }
 
