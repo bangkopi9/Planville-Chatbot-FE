@@ -13,8 +13,11 @@
     <link rel="icon" href="wattson-512.png" type="image/png" />
     <link rel="apple-touch-icon" href="wattson-192.png" />
 
-    <!-- ⛔️ Tidak ada inline CONFIG lagi. CONFIG dipindahkan ke config.js -->
-    <!-- Preconnect/dns-prefetch opsional (boleh dibiarkan kosong karena rewrites same-origin) -->
+    <!-- Network performance hints (ganti domain di bawah dgn domain backend-mu) -->
+    <link rel="preconnect" href="https://web-production-b363.up.railway.app" crossorigin>
+    <link rel="dns-prefetch" href="//web-production-b363.up.railway.app">
+
+    <!-- (Tidak ada inline CONFIG; semua di config.js) -->
   </head>
 
   <body>
@@ -29,8 +32,10 @@
       <div class="chatbot-header">
         <img src="wattson.svg" alt="Wattson Logo" class="chatbot-logo" />
         <h1>Chat with Wattson</h1>
-        <!-- (Dark/Light switch dihapus) -->
       </div>
+
+      <!-- 🔷 Skeleton agar terasa instan (<300ms) -->
+      <div id="wattson-skeleton" class="hidden" aria-hidden="true">Wattson denkt kurz nach…</div>
 
       <div id="chatbot-log" aria-live="polite" aria-atomic="false"></div>
       <div
@@ -42,7 +47,7 @@
         ...
       </div>
 
-      <form id="chatbot-form">
+      <form id="chatbot-form" autocomplete="off">
         <input
           id="chatbot-input"
           type="text"
@@ -65,31 +70,20 @@
       </div>
     </div>
 
-    <!-- ❌ Cookie banner dihapus sesuai permintaan bos -->
+    <!-- ❌ Cookie banner & 👍👎 rating UI dihapus sesuai permintaan -->
 
     <!-- ⚙️ Global helpers (ringan): session, funnel meta, email validator, dsb. -->
     <script>
       function getLang() {
-        try {
-          return document.getElementById("langSwitcher").value || "de";
-        } catch (_) {
-          return "de";
-        }
+        try { return document.getElementById("langSwitcher").value || "de"; }
+        catch (_) { return "de"; }
       }
-
       function sessionId() {
         let s = localStorage.getItem("session_id");
-        if (!s) {
-          s = Date.now() + "-" + Math.random().toString(36).slice(2);
-          localStorage.setItem("session_id", s);
-        }
+        if (!s) { s = Date.now() + "-" + Math.random().toString(36).slice(2); localStorage.setItem("session_id", s); }
         return s;
       }
-
-      function validEmail(e) {
-        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || "").trim());
-      }
-
+      function validEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || "").trim()); }
       function mapProduct(p) {
         const t = (p || "").toLowerCase();
         if (t.includes("photo") || t.includes("pv")) return "pv";
@@ -101,65 +95,39 @@
         if (t.includes("speicher") || t.includes("battery")) return "pv";
         return "pv";
       }
-
-      // Ambil meta funnel dari chatbot.js jika ada (aman kalau belum ada)
       function getFunnelMeta() {
         try {
           const st = window.Funnel?.state || {};
           const id = st.id || st.funnelId || "default";
           const version = st.version || st.funnelVersion || "v1";
-          const src = Array.isArray(st.trace)
-            ? st.trace
-            : Array.isArray(st.steps)
-            ? st.steps
-            : Array.isArray(st.log)
-            ? st.log
-            : null;
-          const trace = src
-            ? src.map((s) => ({
-                id: s?.id ?? s?.key ?? "",
-                key: s?.key ?? s?.id ?? "",
-                label: s?.label ?? s?.title ?? "",
-                value: s?.value ?? s?.answer ?? s?.selected ?? "",
-              }))
-            : null;
+          const src = Array.isArray(st.trace) ? st.trace
+                   : Array.isArray(st.steps) ? st.steps
+                   : Array.isArray(st.log)   ? st.log   : null;
+          const trace = src ? src.map((s) => ({
+            id: s?.id ?? s?.key ?? "",
+            key: s?.key ?? s?.id ?? "",
+            label: s?.label ?? s?.title ?? "",
+            value: s?.value ?? s?.answer ?? s?.selected ?? "",
+          })) : null;
           return { id, version, trace };
-        } catch (_) {
-          return { id: "default", version: "v1", trace: null };
-        }
+        } catch (_) { return { id: "default", version: "v1", trace: null }; }
       }
     </script>
 
     <!-- 🧠 GA4 & Event/Lead helpers + Scoring v4 (+ popup-only flow) -->
     <script>
-      /* ---------- Consent & Analytics Gate ---------- */
       function getConsentState() {
         try {
           const raw = localStorage.getItem("consent_v1");
           if (raw) {
             const c = JSON.parse(raw);
-            return {
-              essential: true,
-              analytics: !!c.analytics,
-              marketing: !!c.marketing,
-              personalization: !!c.personalization,
-            };
+            return { essential: true, analytics: !!c.analytics, marketing: !!c.marketing, personalization: !!c.personalization };
           }
         } catch (_) {}
         const simple = localStorage.getItem("cookieConsent");
-        return {
-          essential: true,
-          analytics: simple === "accepted",
-          marketing: false,
-          personalization: false,
-        };
+        return { essential: true, analytics: simple === "accepted", marketing: false, personalization: false };
       }
-
-      function allowAnalytics() {
-        return !!getConsentState().analytics;
-      }
-
-      // FE events (gated)
+      function allowAnalytics() { return !!getConsentState().analytics; }
       function trackFE(eventName, props = {}, { essential = false } = {}) {
         if (!essential && !allowAnalytics()) return;
         try {
@@ -171,150 +139,74 @@
           fetch(_api("/track"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              event: eventName,
-              props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props),
-            }),
+            body: JSON.stringify({ event: eventName, props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props) }),
           });
         } catch (_) {}
       }
-
       function enableGTM() {
         if (!allowAnalytics()) return;
         const s = document.createElement("script");
         s.src = "https://www.googletagmanager.com/gtag/js?id=G-YL8ECJ5V17";
         s.async = true;
         document.head.appendChild(s);
-
         window.dataLayer = window.dataLayer || [];
-        function gtag() {
-          dataLayer.push(arguments);
-        }
+        function gtag(){ dataLayer.push(arguments); }
         window.gtag = gtag;
         gtag("js", new Date());
         gtag("config", "G-YL8ECJ5V17");
       }
     </script>
 
-    <!-- 🔎 Ringkasan lead + push ke backend. -->
+    <!-- 🔎 Ringkasan lead + push ke backend -->
     <script>
       function buildLeadSummary(lang, productLabel, q = {}) {
-        const L =
-          {
-            de: {
-              product: "Produkt",
-              city: "Ort",
-              plz: "PLZ",
-              type: "Gebäudetyp/Installation",
-              roofForm: "Dachform",
-              area: "Dachfläche (m²)",
-              orient: "Ausrichtung",
-              pitch: "Neigungswinkel (°)",
-              shade: "Verschattung",
-              cons: "Jahresverbrauch (kWh)",
-              battery: "Batteriespeicher",
-              timeline: "Zeitrahmen",
-              contact: "Kontaktzeit",
-              address: "Adresse",
-              yes: "Ja",
-              no: "Nein",
-            },
-            en: {
-              product: "Product",
-              city: "City",
-              plz: "ZIP",
-              type: "Property/Installation",
-              roofForm: "Roof form",
-              area: "Roof area (m²)",
-              orient: "Orientation",
-              pitch: "Pitch (°)",
-              shade: "Shading",
-              cons: "Annual usage (kWh)",
-              battery: "Battery storage",
-              timeline: "Timeline",
-              contact: "Best time",
-              address: "Address",
-              yes: "Yes",
-              no: "No",
-            },
-          }[lang || "de"];
-
+        const L = {
+          de: { product:"Produkt", city:"Ort", plz:"PLZ", type:"Gebäudetyp/Installation", roofForm:"Dachform", area:"Dachfläche (m²)", orient:"Ausrichtung", pitch:"Neigungswinkel (°)", shade:"Verschattung", cons:"Jahresverbrauch (kWh)", battery:"Batteriespeicher", timeline:"Zeitrahmen", contact:"Kontaktzeit", address:"Adresse", yes:"Ja", no:"Nein" },
+          en: { product:"Product", city:"City", plz:"ZIP", type:"Property/Installation", roofForm:"Roof form", area:"Roof area (m²)", orient:"Orientation", pitch:"Pitch (°)", shade:"Shading", cons:"Annual usage (kWh)", battery:"Battery storage", timeline:"Timeline", contact:"Best time", address:"Address", yes:"Yes", no:"No" }
+        }[lang || "de"];
         const has = (v) => v !== undefined && v !== null && String(v).trim() !== "";
-        const pick = (...keys) => {
-          for (const k of keys) {
-            const v = q?.[k];
-            if (has(v)) return v;
-          }
-          return null;
-        };
-
-        const batteryRaw = pick("storage_interest", "battery_jn") || "";
-        const batteryYesNo = batteryRaw
-          ? ((s) => {
-              s = (s + "").toLowerCase();
-              if (["ja", "yes", "true"].includes(s)) return L.yes;
-              if (["nein", "no", "false"].includes(s)) return L.no;
-              return batteryRaw;
-            })(batteryRaw)
-          : null;
-
+        const pick = (...keys) => { for (const k of keys) { const v = q?.[k]; if (has(v)) return v; } return null; };
+        const batteryRaw = pick("storage_interest","battery_jn") || "";
+        const batteryYesNo = batteryRaw ? ((s)=>{ s=(s+"").toLowerCase(); if(["ja","yes","true"].includes(s)) return L.yes; if(["nein","no","false"].includes(s)) return L.no; return batteryRaw; })(batteryRaw) : null;
         const rows = [
           [L.product, productLabel || "-"],
-          [L.city, pick("city", "ort", "town", "stadt")],
-          [L.plz, pick("plz", "zip", "postal_code", "postleitzahl")],
-          [L.type, pick("prop_type", "immobilientyp", "install_location", "installation_location", "install_on")],
-          [L.roofForm, pick("roof_type", "roof_form", "dachform")],
-          [L.area, pick("area_sqm", "dachflache_m2")],
-          [L.orient, pick("orientation", "ausrichtung")],
-          [L.pitch, pick("neigung_deg", "neigungswinkel")],
-          [L.shade, pick("shading", "verschattung")],
-          [L.cons, pick("consumption_kwh", "verbrauch_kwh")],
+          [L.city, pick("city","ort","town","stadt")],
+          [L.plz, pick("plz","zip","postal_code","postleitzahl")],
+          [L.type, pick("prop_type","immobilientyp","install_location","installation_location","install_on")],
+          [L.roofForm, pick("roof_type","roof_form","dachform")],
+          [L.area, pick("area_sqm","dachflache_m2")],
+          [L.orient, pick("orientation","ausrichtung")],
+          [L.pitch, pick("neigung_deg","neigungswinkel")],
+          [L.shade, pick("shading","verschattung")],
+          [L.cons, pick("consumption_kwh","verbrauch_kwh")],
           [L.battery, batteryYesNo ? batteryYesNo + (has(q?.battery_kwh) ? ` (${q.battery_kwh} kWh)` : "") : null],
-          [L.timeline, pick("install_timeline", "timeline", "zeitrahmen")],
-          [L.contact, pick("contact_time_window", "contact_window")],
-          [L.address, pick("property_street_number", "address", "adresse")],
+          [L.timeline, pick("install_timeline","timeline","zeitrahmen")],
+          [L.contact, pick("contact_time_window","contact_window")],
+          [L.address, pick("property_street_number","address","adresse")],
         ].filter(([, v]) => has(v));
-
-        return rows.map(([k, v]) => `${k}: ${v}`).join(" • ");
+        return rows.map(([k,v]) => `${k}: ${v}`).join(" • ");
       }
-
       function showSummaryFromFunnel(qualification = {}) {
         const lang = getLang();
         const productLabel = window.Funnel?.state?.productLabel || "Photovoltaik";
         const s = buildLeadSummary(lang, productLabel, qualification);
-        const html = `
-          <div class="summary-bubble">
-            <ul>${s
-              .split(" • ")
-              .map((li) => `<li>${li}</li>`)
-              .join("")}</ul>
-          </div>`;
+        const html = `<div class="summary-bubble"><ul>${s.split(" • ").map((li)=>`<li>${li}</li>`).join("")}</ul></div>`;
         window.appendMessage?.(html, "bot");
         trackFE("summary_view", { product: mapProduct(productLabel) }, { essential: true });
       }
-
       function updateSummaryField(lang, key, value) {
         try {
-          const LABEL = lang === "en" ? { plz: "ZIP", address: "Address" } : { plz: "PLZ", address: "Adresse" };
-          const bubble = [...document.querySelectorAll(".summary-bubble")].slice(-1)[0];
-          if (!bubble) return;
-          const ul = bubble.querySelector("ul");
-          if (!ul) return;
+          const LABEL = lang === "en" ? { plz:"ZIP", address:"Address" } : { plz:"PLZ", address:"Adresse" };
+          const bubble = [...document.querySelectorAll(".summary-bubble")].slice(-1)[0]; if (!bubble) return;
+          const ul = bubble.querySelector("ul"); if (!ul) return;
           const label = LABEL[key];
-          let li = [...ul.querySelectorAll("li")].find((n) => n.textContent.trim().startsWith(label + ":"));
+          let li = [...ul.querySelectorAll("li")].find((n)=>n.textContent.trim().startsWith(label + ":"));
           const text = `${label}: ${value && String(value).trim() ? value : "-"}`;
-          if (li) li.textContent = text;
-          else {
-            const newLi = document.createElement("li");
-            newLi.textContent = text;
-            ul.appendChild(newLi);
-          }
-        } catch (_) {}
+          if (li) li.textContent = text; else { const n = document.createElement("li"); n.textContent = text; ul.appendChild(n); }
+        } catch(_) {}
       }
-
       function logLeadToGoogleSheet(payload) {
-        const GS_WEBHOOK_URL =
-          "https://script.google.com/macros/s/AKfycbxdmC7n29ylriM5eKct4uQx6_7rGrhF0UCRSXamS8xNqzmtBgh9SXgcP5V_-nH0oErv/exec";
+        const GS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxdmC7n29ylriM5eKct4uQx6_7rGrhF0UCRSXamS8xNqzmtBgh9SXgcP5V_-nH0oErv/exec";
         const GS_WEBHOOK_SECRET = "PV_LEADS_WEBHOOK_SECRET_8e2c7f4fb2c3412cbbde2f3e9a0c7b51";
         if (!GS_WEBHOOK_URL) return;
         const data = JSON.stringify({ secret: GS_WEBHOOK_SECRET, data: payload });
@@ -324,49 +216,26 @@
             navigator.sendBeacon(GS_WEBHOOK_URL, blob);
             return;
           }
-        } catch (_) {}
+        } catch(_) {}
         try {
-          fetch(GS_WEBHOOK_URL, {
-            method: "POST",
-            mode: "no-cors",
-            headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: data,
-          });
-        } catch (_) {}
+          fetch(GS_WEBHOOK_URL, { method:"POST", mode:"no-cors", headers:{ "Content-Type":"text/plain;charset=utf-8" }, body:data });
+        } catch(_) {}
       }
-
       async function sendLeadToBackend({ productLabel, name, address, email, phone, origin, qualification }) {
         const lang = getLang();
         const product = mapProduct(productLabel);
         const q = qualification && typeof qualification === "object" ? qualification : { origin: origin || "form", product_label: productLabel };
 
-        // Jika tersedia, pakai skor detail V4 dari global (index/chatbot dapat men-define).
-        let score = 0,
-          priority = "P3-COLD",
-          confidence = 0.5,
-          score_breakdown = "basic",
-          components = {},
-          tags = [],
-          risk_flags = [],
-          next_action = "Nurture (email/WhatsApp) + retargeting",
-          sla_minutes = 1440,
-          routing = "Marketing Ops";
-
+        let score=0, priority="P3-COLD", confidence=0.5, score_breakdown="basic", components={}, tags=[], risk_flags=[],
+            next_action="Nurture (email/WhatsApp) + retargeting", sla_minutes=1440, routing="Marketing Ops";
         try {
           if (typeof window.computeLeadScoreDetailV4 === "function") {
             const det = window.computeLeadScoreDetailV4(product, q, { name, email, phone, address });
-            score = det.score;
-            priority = det.priority;
-            confidence = det.confidence;
-            score_breakdown = det.score_breakdown;
-            components = det.components;
-            tags = det.tags;
-            risk_flags = det.risk_flags;
-            next_action = det.next_action;
-            sla_minutes = det.sla_minutes;
-            routing = det.routing;
+            score = det.score; priority = det.priority; confidence = det.confidence; score_breakdown = det.score_breakdown;
+            components = det.components; tags = det.tags; risk_flags = det.risk_flags; next_action = det.next_action;
+            sla_minutes = det.sla_minutes; routing = det.routing;
           }
-        } catch (_) {}
+        } catch(_) {}
 
         const { id: funnel_id, version: funnel_version, trace: funnel_trace } = getFunnelMeta();
         const summary = buildLeadSummary(lang, productLabel, q);
@@ -376,119 +245,59 @@
           product,
           qualification: q,
           contact: { name, address, email, phone, consent: true },
-          score,
-          priority,
-          confidence,
-          score_breakdown,
-          score_components: components,
-          tags,
-          risk_flags,
-          next_action,
-          sla_minutes,
-          routing,
+          score, priority, confidence, score_breakdown,
+          score_components: components, tags, risk_flags,
+          next_action, sla_minutes, routing,
           summary,
           notes: origin ? `Submitted via ${origin}` : "Submitted via chat funnel form",
           meta: {
-            lang,
-            session_id: sessionId(),
-            variant: localStorage.getItem("ab_variant") || "A",
-            funnel_id,
-            funnel_version,
-            funnel_trace,
+            lang, session_id: sessionId(), variant: localStorage.getItem("ab_variant") || "A",
+            funnel_id, funnel_version, funnel_trace,
           },
         };
 
-        trackFE(
-          "contact_submit",
-          { product, origin: origin || "unknown", priority, score, confidence },
-          { essential: true }
-        );
+        trackFE("contact_submit", { product, origin: origin || "unknown", priority, score, confidence }, { essential: true });
         logLeadToGoogleSheet(payload);
 
-        const res = await fetch(_api("/lead"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
+        const res = await fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
         if (!res.ok) throw new Error("Lead push failed");
         return res.json();
       }
-
-      // Timeline → trigger summary + buka modal
       window.onTimelineSelected = function (timelineValue) {
         const lang = getLang();
         const productLabel =
           window.Funnel?.state?.productLabel ||
           document.querySelector(".product-button.selected")?.textContent ||
           "Photovoltaik";
-
-        const qualification = window.Funnel?.state?.data
-          ? { ...window.Funnel.state.data, timeline: timelineValue }
-          : { timeline: timelineValue, product_label: productLabel };
-
-        window.appendMessage?.(
-          lang === "de" ? "Super, dann sind wir fast fertig. Bitte trage deine Kontaktdaten ein:" : "Great, we’re almost done. Please enter your contact details:",
-          "bot"
-        );
-
+        const qualification = window.Funnel?.state?.data ? { ...window.Funnel.state.data, timeline: timelineValue }
+                                                         : { timeline: timelineValue, product_label: productLabel };
+        window.appendMessage?.(lang === "de" ? "Super, dann sind wir fast fertig. Bitte trage deine Kontaktdaten ein:" : "Great, we’re almost done. Please enter your contact details:", "bot");
         showSummaryFromFunnel(qualification);
         window.openLeadForm?.(productLabel, qualification);
-        trackFE(
-          "contact_open",
-          { product: mapProduct(productLabel), timeline: timelineValue },
-          { essential: true }
-        );
+        trackFE("contact_open", { product: mapProduct(productLabel), timeline: timelineValue }, { essential: true });
       };
-
-      // Disqualified → kirim payload blokir
       window.sendDisqualifiedLead = function (reason) {
         const lang = getLang();
         const productLabel = window.Funnel?.state?.productLabel || "Photovoltaik";
         const qualification = window.Funnel?.state?.data || {};
         const summary = buildLeadSummary(lang, productLabel, qualification);
-
         const { id: funnel_id, version: funnel_version, trace: funnel_trace } = getFunnelMeta();
-
         const payload = {
-          source: "Website Funnel",
+          source:"Website Funnel",
           product: mapProduct(productLabel),
           qualification: { ...qualification, disqualify_reason: reason || "gate_failed" },
-          contact: { name: "-", address: "-", email: "no@email.invalid", phone: "-" },
-          score: 0,
-          priority: "P0-BLOCK",
-          confidence: 1.0,
-          score_breakdown: "Disqualified by guardrail",
-          tags: ["DISQUALIFIED"],
-          risk_flags: ["guardrail_disqualify"],
-          next_action: "Do not contact (blocked)",
-          sla_minutes: null,
-          routing: "N/A",
-          disqualified: true,
-          summary,
-          notes: "Auto-disqualify gate",
-          meta: {
-            lang,
-            session_id: sessionId(),
-            variant: localStorage.getItem("ab_variant") || "A",
-            funnel_id,
-            funnel_version,
-            funnel_trace,
-          },
+          contact: { name:"-", address:"-", email:"no@email.invalid", phone:"-" },
+          score:0, priority:"P0-BLOCK", confidence:1.0, score_breakdown:"Disqualified by guardrail",
+          tags:["DISQUALIFIED"], risk_flags:["guardrail_disqualify"],
+          next_action:"Do not contact (blocked)", sla_minutes:null, routing:"N/A",
+          disqualified:true, summary, notes:"Auto-disqualify gate",
+          meta:{ lang, session_id: sessionId(), variant: localStorage.getItem("ab_variant") || "A", funnel_id, funnel_version, funnel_trace }
         };
-
         try {
           logLeadToGoogleSheet(payload);
-          fetch(_api("/lead"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-        } catch (_) {}
-        trackFE(
-          "disqualify",
-          { product: payload.product, reason: payload.qualification.disqualify_reason },
-          { essential: true }
-        );
+          fetch(_api("/lead"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+        } catch(_) {}
+        trackFE("disqualify", { product: payload.product, reason: payload.qualification.disqualify_reason }, { essential: true });
       };
     </script>
 
@@ -496,5 +305,7 @@
     <script defer src="config.js"></script>
     <script defer src="ai_guardrails_vlite.patched.js"></script>
     <script defer src="chatbot.js"></script>
+
+    <noscript>Bitte JavaScript aktivieren, um den Wattson-Chatbot zu nutzen.</noscript>
   </body>
 </html>
