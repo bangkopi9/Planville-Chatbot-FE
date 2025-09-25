@@ -13,7 +13,7 @@
     <link rel="icon" href="wattson-512.png" type="image/png" />
     <link rel="apple-touch-icon" href="wattson-192.png" />
 
-    <!-- Network performance hints (ganti domain di bawah dgn domain backend-mu) -->
+    <!-- Network performance hints (samakan origin dengan CONFIG.BASE_API_URL) -->
     <link rel="preconnect" href="https://web-production-b363.up.railway.app" crossorigin>
     <link rel="dns-prefetch" href="//web-production-b363.up.railway.app">
 
@@ -43,9 +43,7 @@
         class="chatbot-message bot-message typing-bubble"
         style="display: none"
         aria-hidden="true"
-      >
-        ...
-      </div>
+      >...</div>
 
       <form id="chatbot-form" autocomplete="off">
         <input
@@ -55,7 +53,7 @@
           autocapitalize="off"
           autocorrect="off"
           enterkeyhint="send"
-          placeholder="Type your question..."
+          placeholder="…"  <!-- akan dioverride oleh script bahasa -->
         />
         <button type="submit" aria-label="Nachricht senden">💬</button>
       </form>
@@ -112,6 +110,33 @@
           return { id, version, trace };
         } catch (_) { return { id: "default", version: "v1", trace: null }; }
       }
+    </script>
+
+    <!-- 📝 UI bahasa dinamis (placeholder input + aria-label tombol + label switcher) -->
+    <script>
+      const UI_STRINGS = {
+        de: { placeholder: "Schreibe deine Frage…", sendLabel: "Nachricht senden", langLabel: "🌐 Sprache:" },
+        en: { placeholder: "Type your question...",   sendLabel: "Send message",     langLabel: "🌐 Language:" }
+      };
+      function setUILanguageStrings() {
+        const lang = (typeof getLang === "function") ? getLang() : "de";
+        const L = UI_STRINGS[lang] || UI_STRINGS.en;
+
+        const input = document.getElementById("chatbot-input");
+        if (input) input.setAttribute("placeholder", L.placeholder);
+
+        const btn = document.querySelector("#chatbot-form button[type='submit']");
+        if (btn) btn.setAttribute("aria-label", L.sendLabel);
+
+        const lbl = document.querySelector(".language-switcher label[for='langSwitcher']");
+        if (lbl) { lbl.firstChild.nodeValue = L.langLabel; }
+      }
+      document.addEventListener("DOMContentLoaded", setUILanguageStrings);
+      (function bindLangChange(){
+        const sel = document.getElementById("langSwitcher");
+        if (sel) sel.addEventListener("change", setUILanguageStrings);
+      })();
+      window.refreshUILang = setUILanguageStrings; // jika bahasa diubah via kode lain
     </script>
 
     <!-- 🧠 GA4 & Event/Lead helpers + Scoring v4 (+ popup-only flow) -->
