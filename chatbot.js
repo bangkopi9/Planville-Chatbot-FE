@@ -2402,10 +2402,10 @@
             tenant: "mieterstrom",
             roof: "dach",
             aircon: "klimaanlage",
-            window: "stawagdoor2door",
+            window: "fenster",
           };
 
-          const leadTypeKey = productToKeyMap[product] || "stawagdoor2door";
+          const leadTypeKey = productToKeyMap[product];
 
           // Find the lead type by key and return its id
           const leadType = leadTypesData.find((lt) => lt.key === leadTypeKey);
