@@ -22,7 +22,9 @@
       if (!b) return "";
       if (!/^https?:\/\//i.test(b)) b = "https://" + b;
       return b.replace(/\/+$/, "");
-    } catch (_) { return ""; }
+    } catch (_) {
+      return "";
+    }
   }
   function _api(path) {
     const base = _baseURL();
@@ -67,10 +69,15 @@
     }
   }
 
-  async function askStreamWithFallback({ question, lang }, { onDelta, onDone }) {
+  async function askStreamWithFallback(
+    { question, lang },
+    { onDelta, onDone }
+  ) {
     // Abort request sebelumnya agar first-token lebih cepat
     if (window.__chatAbortController) {
-      try { window.__chatAbortController.abort(); } catch (_) {}
+      try {
+        window.__chatAbortController.abort();
+      } catch (_) {}
     }
     const controller = new AbortController();
     window.__chatAbortController = controller;
@@ -79,7 +86,9 @@
     let lastTick = Date.now();
     const watchdog = setInterval(() => {
       if (Date.now() - lastTick > 10000) {
-        try { controller.abort(); } catch (_) {}
+        try {
+          controller.abort();
+        } catch (_) {}
         clearInterval(watchdog);
       }
     }, 2500);
@@ -127,7 +136,8 @@
         if (text) onDelta && onDelta(String(text));
         onDone && onDone(String(text));
       } catch {
-        onDelta && onDelta("\n(Verbindungsproblem, bitte später erneut versuchen.)");
+        onDelta &&
+          onDelta("\n(Verbindungsproblem, bitte später erneut versuchen.)");
         onDone && onDone("");
       }
     }
@@ -136,8 +146,12 @@
   async function withRetry(fn, { retries = 1, baseDelay = 500 } = {}) {
     let last;
     for (let i = 0; i <= retries; i++) {
-      try { return await fn(); }
-      catch (e) { last = e; await new Promise((r) => setTimeout(r, baseDelay * (i + 1))); }
+      try {
+        return await fn();
+      } catch (e) {
+        last = e;
+        await new Promise((r) => setTimeout(r, baseDelay * (i + 1)));
+      }
     }
     throw last;
   }
@@ -150,7 +164,9 @@
     try {
       window.dataLayer = window.dataLayer || [];
       const variant = localStorage.getItem("ab_variant") || "A";
-      window.dataLayer.push(Object.assign({ event: eventName, variant }, props));
+      window.dataLayer.push(
+        Object.assign({ event: eventName, variant }, props)
+      );
     } catch (_) {}
     try {
       fetch(_api("/track"), {
@@ -158,7 +174,10 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event: eventName,
-          props: Object.assign({ variant: localStorage.getItem("ab_variant") || "A" }, props),
+          props: Object.assign(
+            { variant: localStorage.getItem("ab_variant") || "A" },
+            props
+          ),
         }),
       });
     } catch (_) {}
@@ -193,55 +212,94 @@
   };
 
   const Q = {
-    install_location_q: { de: "Worauf soll die Solaranlage installiert werden?", en: "Where should the PV system be installed?" },
-    building_type_q:    { de: "Um welchen Gebäudetyp handelt es sich?",       en: "What is the building subtype?" },
-    self_occupied_q:    { de: "Bewohnst Du die Immobilie selbst?",            en: "Do you live in the property yourself?" },
-    ownership_q:        { de: "Bist Du Eigentümer:in der Immobilie?",         en: "Are you the owner of the property?" },
-    roof_type_q:        { de: "Was für ein Dach hast Du?",                    en: "What roof type do you have?" },
-    storage_interest_q: { de: "Möchtest Du einen Stromspeicher?",             en: "Would you like to add a battery storage?" },
-    install_timeline_q: { de: "Wann soll deine Anlage installiert werden?",   en: "When should the system be installed?" },
-    property_street_q:  { de: "Wo steht die Immobilie? (Straße + Hausnummer)",en: "Where is the property? (Street + No.)" },
-    contact_time_q:     { de: "Wann bist Du am besten zu erreichen?",         en: "When are you best reachable?" },
-    plz_q:              { de: "Wie lautet die PLZ?",                           en: "What is the ZIP code?" },
-    issues_q:           { de: "Gibt es Probleme?",                             en: "Any current issues?" },
-    heatingType_q:      { de: "Aktuelle Heizart?",                             en: "Current heating type?" }
+    install_location_q: {
+      de: "Worauf soll die Solaranlage installiert werden?",
+      en: "Where should the PV system be installed?",
+    },
+    building_type_q: {
+      de: "Um welchen Gebäudetyp handelt es sich?",
+      en: "What is the building subtype?",
+    },
+    self_occupied_q: {
+      de: "Bewohnst Du die Immobilie selbst?",
+      en: "Do you live in the property yourself?",
+    },
+    ownership_q: {
+      de: "Bist Du Eigentümer:in der Immobilie?",
+      en: "Are you the owner of the property?",
+    },
+    roof_type_q: {
+      de: "Was für ein Dach hast Du?",
+      en: "What roof type do you have?",
+    },
+    storage_interest_q: {
+      de: "Möchtest Du einen Stromspeicher?",
+      en: "Would you like to add a battery storage?",
+    },
+    install_timeline_q: {
+      de: "Wann soll deine Anlage installiert werden?",
+      en: "When should the system be installed?",
+    },
+    property_street_q: {
+      de: "Wo steht die Immobilie? (Straße + Hausnummer)",
+      en: "Where is the property? (Street + No.)",
+    },
+    contact_time_q: {
+      de: "Wann bist Du am besten zu erreichen?",
+      en: "When are you best reachable?",
+    },
+    plz_q: { de: "Wie lautet die PLZ?", en: "What is the ZIP code?" },
+    issues_q: { de: "Gibt es Probleme?", en: "Any current issues?" },
+    heatingType_q: { de: "Aktuelle Heizart?", en: "Current heating type?" },
   };
 
   const productLabels = {
-    heatpump: { en: "Heat Pump 🔥",       de: "Wärmepumpe 🔥" },
-    aircon:   { en: "Air Conditioner ❄️", de: "Klimaanlage ❄️" },
-    pv:       { en: "Photovoltaic System ☀️", de: "Photovoltaikanlage ☀️" },
-    roof:     { en: "Roof Renovation 🛠️", de: "Dachsanierung 🛠️" },
-    tenant:   { en: "Tenant Power 🏠",     de: "Mieterstrom 🏠" },
-    window:   { en: "Windows 🪟",          de: "Fenster 🪟" }
+    heatpump: { en: "Heat Pump 🔥", de: "Wärmepumpe 🔥" },
+    aircon: { en: "Air Conditioner ❄️", de: "Klimaanlage ❄️" },
+    pv: { en: "Photovoltaic System ☀️", de: "Photovoltaikanlage ☀️" },
+    roof: { en: "Roof Renovation 🛠️", de: "Dachsanierung 🛠️" },
+    tenant: { en: "Tenant Power 🏠", de: "Mieterstrom 🏠" },
+    window: { en: "Windows 🪟", de: "Fenster 🪟" },
   };
 
   const faqTexts = {
-    en: ["How much does photovoltaics service cost?","What areas does Planville serve?","Can I book a consultation?"],
-    de: ["Wie viel kostet eine Photovoltaikanlage?","Welche Regionen deckt Planville ab?","Kann ich eine Beratung buchen?"],
+    en: [
+      "How much does photovoltaics service cost?",
+      "What areas does Planville serve?",
+      "Can I book a consultation?",
+    ],
+    de: [
+      "Wie viel kostet eine Photovoltaikanlage?",
+      "Welche Regionen deckt Planville ab?",
+      "Kann ich eine Beratung buchen?",
+    ],
   };
 
   // NEW: localized placeholder for the main chat input
   const PLACEHOLDER = {
     de: "Frage eingeben...",
-    en: "Type your question..."
+    en: "Type your question...",
   };
 
   /* ---------------------------
      Element selectors
   ----------------------------*/
-  const chatLog      = document.getElementById("chatbot-log");
-  const form         = document.getElementById("chatbot-form");
-  const input        = document.getElementById("chatbot-input");
+  const chatLog = document.getElementById("chatbot-log");
+  const form = document.getElementById("chatbot-form");
+  const input = document.getElementById("chatbot-input");
   const typingBubble = document.getElementById("typing-bubble");
   const langSwitcher = document.getElementById("langSwitcher");
-  const pvHero       = document.querySelector(".pv-hero");
-  const pvBalloon    = document.querySelector(".pv-balloon span");
+  const pvHero = document.querySelector(".pv-hero");
+  const pvBalloon = document.querySelector(".pv-balloon span");
 
   // ==== Enter-to-submit untuk input chat utama (IME-safe) ====
   let __isComposing = false;
-  input?.addEventListener("compositionstart", () => { __isComposing = true; });
-  input?.addEventListener("compositionend",   () => { __isComposing = false; });
+  input?.addEventListener("compositionstart", () => {
+    __isComposing = true;
+  });
+  input?.addEventListener("compositionend", () => {
+    __isComposing = false;
+  });
 
   // UPDATED: robust submit + mobile polish
   input?.addEventListener("keydown", (e) => {
@@ -250,9 +308,13 @@
       if (form?.requestSubmit) {
         form.requestSubmit();
       } else if (form) {
-        form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+        form.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true })
+        );
       }
-      try { if (/Mobi|Android/i.test(navigator.userAgent)) input.blur(); } catch(_) {}
+      try {
+        if (/Mobi|Android/i.test(navigator.userAgent)) input.blur();
+      } catch (_) {}
     }
   });
 
@@ -261,7 +323,7 @@
   let __lastOrigin = "chat"; // 'chat' | 'faq'
 
   function ensureViewportMeta() {
-    if (!document.querySelector('meta[name="viewport"]')){
+    if (!document.querySelector('meta[name="viewport"]')) {
       const m = document.createElement("meta");
       m.name = "viewport";
       m.content = "width=device-width, initial-scale=1, viewport-fit=cover";
@@ -272,7 +334,8 @@
   function isMobile() {
     return (
       window.matchMedia("(max-width: 768px)").matches ||
-      (window.matchMedia("(pointer:coarse)").matches && window.innerWidth <= 1024)
+      (window.matchMedia("(pointer:coarse)").matches &&
+        window.innerWidth <= 1024)
     );
   }
   function openLeadForm(productLabel, qualification) {
@@ -286,7 +349,10 @@
   window.addEventListener("load", function () {
     ensureViewportMeta();
 
-    const selectedLang = localStorage.getItem("selectedLang") || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
+    const selectedLang =
+      localStorage.getItem("selectedLang") ||
+      (window.CONFIG && CONFIG.LANG_DEFAULT) ||
+      "de";
     if (langSwitcher) langSwitcher.value = selectedLang;
 
     // NEW: set main input placeholder on load
@@ -304,14 +370,17 @@
     chatStarted = true;
 
     // Auto-greeting jika kosong
-    const hasContent  = chatLog && chatLog.children && chatLog.children.length > 0;
+    const hasContent =
+      chatLog && chatLog.children && chatLog.children.length > 0;
     const hasProducts = document.getElementById("product-options-block");
-    if (!hasContent && !hasProducts) { startGreetingFlow(true); }
+    if (!hasContent && !hasProducts) {
+      startGreetingFlow(true);
+    }
   });
 
   function hideChatArea() {
     const container = document.querySelector(".chatbot-container");
-    const sidebar   = document.querySelector(".faq-sidebar");
+    const sidebar = document.querySelector(".faq-sidebar");
     if (container) container.style.display = "none";
     if (sidebar) sidebar.style.display = "";
   }
@@ -331,7 +400,8 @@
       // NEW: update main input placeholder on language change
       if (input) input.placeholder = PLACEHOLDER[lang] || PLACEHOLDER.de;
 
-      if (chatStarted) updateUITexts(lang); else updateHeaderOnly(lang);
+      if (chatStarted) updateUITexts(lang);
+      else updateHeaderOnly(lang);
       track("language_switch", { lang: lang });
     });
   }
@@ -341,10 +411,16 @@
     form.addEventListener("submit", async function (e) {
       e.preventDefault();
       __lastOrigin = __lastOrigin || "chat";
-      if (!chatStarted) { chatStarted = true; showChatArea(); }
+      if (!chatStarted) {
+        chatStarted = true;
+        showChatArea();
+      }
 
       const question = (input.value || "").trim();
-      const selectedLang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
+      const selectedLang =
+        (langSwitcher && langSwitcher.value) ||
+        (window.CONFIG && CONFIG.LANG_DEFAULT) ||
+        "de";
       if (!question) return;
 
       appendMessage(question, "user");
@@ -355,8 +431,13 @@
       // Intent sederhana
       if (detectIntent(question)) {
         if (typingBubble) typingBubble.style.display = "none";
-        const inFunnel = !!(window.Funnel && window.Funnel.state && window.Funnel.state.product);
-        if (inFunnel) offerContinueOrForm(selectedLang); else maybeOfferStartCTA(selectedLang);
+        const inFunnel = !!(
+          window.Funnel &&
+          window.Funnel.state &&
+          window.Funnel.state.product
+        );
+        if (inFunnel) offerContinueOrForm(selectedLang);
+        else maybeOfferStartCTA(selectedLang);
         __lastOrigin = "chat";
         return;
       }
@@ -371,7 +452,8 @@
           const ai = await window.AIGuard.ask(question, selectedLang);
           if (ai && ai.stop) {
             if (typingBubble) typingBubble.style.display = "none";
-            if (botLive && botLive.firstChild) botLive.firstChild.textContent = "";
+            if (botLive && botLive.firstChild)
+              botLive.firstChild.textContent = "";
             nudgeToFormFromInterrupt(selectedLang);
             __lastOrigin = "chat";
             return;
@@ -379,7 +461,9 @@
           if (ai && ai.text) {
             finalReply = String(ai.text).trim();
             if (typingBubble) typingBubble.style.display = "none";
-            if (botLive) { botLive.innerHTML = finalReply; }
+            if (botLive) {
+              botLive.innerHTML = finalReply;
+            }
             saveToHistory("bot", finalReply);
           }
         }
@@ -387,20 +471,27 @@
         if (!finalReply) {
           let gotFirst = false;
           await withRetry(
-            () => askStreamWithFallback(
-              { question, lang: selectedLang },
-              {
-                onDelta: function (delta) {
-                  if (!gotFirst && typingBubble) { typingBubble.style.display = "none"; gotFirst = true; }
-                  acc += delta;
-                  if (botLive) { botLive.innerHTML = acc; chatLog.scrollTop = chatLog.scrollHeight; }
-                },
-                onDone: function (maybeFull) {
-                  const full = (maybeFull || acc || "").trim();
-                  finalReply = full || I18N.unsure[selectedLang];
-                },
-              }
-            ),
+            () =>
+              askStreamWithFallback(
+                { question, lang: selectedLang },
+                {
+                  onDelta: function (delta) {
+                    if (!gotFirst && typingBubble) {
+                      typingBubble.style.display = "none";
+                      gotFirst = true;
+                    }
+                    acc += delta;
+                    if (botLive) {
+                      botLive.innerHTML = acc;
+                      chatLog.scrollTop = chatLog.scrollHeight;
+                    }
+                  },
+                  onDone: function (maybeFull) {
+                    const full = (maybeFull || acc || "").trim();
+                    finalReply = full || I18N.unsure[selectedLang];
+                  },
+                }
+              ),
             { retries: 0 }
           );
 
@@ -417,22 +508,43 @@
           });
           const data = await res.json();
           const replyRaw = data.answer !== undefined ? data.answer : data.reply;
-          finalReply = (typeof replyRaw === "string" ? replyRaw.trim() : "") || I18N.unsure[selectedLang];
-          if (botLive) { botLive.innerHTML = finalReply; } else { appendMessage(finalReply, "bot"); }
+          finalReply =
+            (typeof replyRaw === "string" ? replyRaw.trim() : "") ||
+            I18N.unsure[selectedLang];
+          if (botLive) {
+            botLive.innerHTML = finalReply;
+          } else {
+            appendMessage(finalReply, "bot");
+          }
           saveToHistory("bot", finalReply);
         } catch (_) {
-          if (botLive) { botLive.innerHTML = "Error while connecting to the API."; }
-          else { appendMessage("Error while connecting to the API.", "bot"); }
+          if (botLive) {
+            botLive.innerHTML = "Error while connecting to the API.";
+          } else {
+            appendMessage("Error while connecting to the API.", "bot");
+          }
         } finally {
           if (typingBubble) typingBubble.style.display = "none";
         }
       } finally {
-        const inFunnel = !!(window.Funnel && window.Funnel.state && window.Funnel.state.product);
-        const formShown = !!document.getElementById("lead-contact-form-chat") || !!document.getElementById("lead-float-overlay");
-        if (inFunnel) { offerContinueOrForm(selectedLang); }
-        else if (!formShown) { maybeOfferStartCTA(selectedLang); }
+        const inFunnel = !!(
+          window.Funnel &&
+          window.Funnel.state &&
+          window.Funnel.state.product
+        );
+        const formShown =
+          !!document.getElementById("lead-contact-form-chat") ||
+          !!document.getElementById("lead-float-overlay");
+        if (inFunnel) {
+          offerContinueOrForm(selectedLang);
+        } else if (!formShown) {
+          maybeOfferStartCTA(selectedLang);
+        }
         track("chat_message", { q_len: question.length, lang: selectedLang });
-        if (window.AIGuard && typeof window.AIGuard.maybeContinueFunnel === "function") {
+        if (
+          window.AIGuard &&
+          typeof window.AIGuard.maybeContinueFunnel === "function"
+        ) {
           window.AIGuard.maybeContinueFunnel();
         }
         __lastOrigin = "chat";
@@ -444,7 +556,10 @@
      Greeting / Header
   ----------------------------*/
   function startGreetingFlow(withProducts) {
-    const lang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
+    const lang =
+      (langSwitcher && langSwitcher.value) ||
+      (window.CONFIG && CONFIG.LANG_DEFAULT) ||
+      "de";
     updateUITexts(lang);
     if (!withProducts) {
       const productBlock = document.getElementById("product-options-block");
@@ -462,10 +577,12 @@
   function appendMessage(msg, sender, scroll) {
     if (!chatLog) return null;
     const msgDiv = document.createElement("div");
-    msgDiv.className = "chatbot-message " + (sender === "user" ? "user-message" : "bot-message");
+    msgDiv.className =
+      "chatbot-message " + (sender === "user" ? "user-message" : "bot-message");
     msgDiv.innerHTML = msg;
     chatLog.appendChild(msgDiv);
-    if (scroll === undefined || scroll) chatLog.scrollTop = chatLog.scrollHeight;
+    if (scroll === undefined || scroll)
+      chatLog.scrollTop = chatLog.scrollHeight;
     return msgDiv;
   }
   function saveToHistory(sender, message) {
@@ -520,7 +637,10 @@
   }
 
   function showProductOptions() {
-    const lang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
+    const lang =
+      (langSwitcher && langSwitcher.value) ||
+      (window.CONFIG && CONFIG.LANG_DEFAULT) ||
+      "de";
     const keys = ["pv", "aircon", "heatpump", "tenant", "roof", "window"];
     const existing = document.getElementById("product-options-block");
     if (existing) existing.remove();
@@ -537,7 +657,11 @@
       button.className = "product-button";
       button.dataset.key = key;
       button.onclick = function () {
-        document.querySelectorAll(".product-button.selected").forEach(function (b) { b.classList.remove("selected"); });
+        document
+          .querySelectorAll(".product-button.selected")
+          .forEach(function (b) {
+            b.classList.remove("selected");
+          });
         button.classList.add("selected");
         handleProductSelection(key);
       };
@@ -551,10 +675,14 @@
   }
 
   function handleProductSelection(key) {
-    const lang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
+    const lang =
+      (langSwitcher && langSwitcher.value) ||
+      (window.CONFIG && CONFIG.LANG_DEFAULT) ||
+      "de";
     Funnel.reset();
     Funnel.state.product = key;
-    Funnel.state.productLabel = (productLabels[key] && productLabels[key][lang]) || key;
+    Funnel.state.productLabel =
+      (productLabels[key] && productLabels[key][lang]) || key;
     appendMessage(Funnel.state.productLabel, "user");
     askNext();
   }
@@ -564,24 +692,41 @@
   ----------------------------*/
   function detectIntent(text) {
     const lower = (text || "").toLowerCase();
-    const lang = (langSwitcher && langSwitcher.value) || (window.CONFIG && CONFIG.LANG_DEFAULT) || "de";
-    if (lower.includes("harga") || lower.includes("kosten") || lower.includes("cost") || lower.includes("price")) {
+    const lang =
+      (langSwitcher && langSwitcher.value) ||
+      (window.CONFIG && CONFIG.LANG_DEFAULT) ||
+      "de";
+    if (
+      lower.includes("harga") ||
+      lower.includes("kosten") ||
+      lower.includes("cost") ||
+      lower.includes("price")
+    ) {
       appendMessage(I18N.priceMsg[lang], "bot");
       const cta = document.createElement("a");
       cta.href = "https://planville.de/kontakt/";
       cta.target = "_blank";
       cta.rel = "noopener";
       cta.className = "cta-button";
-      cta.innerText = lang === "de" ? "Jetzt Preis anfragen 👉" : "Request Price 👉";
+      cta.innerText =
+        lang === "de" ? "Jetzt Preis anfragen 👉" : "Request Price 👉";
       if (chatLog) chatLog.appendChild(cta);
       offerFAQFollowup(lang);
       track("intent_preisinfo", { text: text, language: lang });
       return true;
     }
     if (lower.includes("tertarik") || lower.includes("interested")) {
-      appendMessage(lang === "de" ? "Super! Bitte füllen Sie dieses kurze Formular aus:" : "Great! Please fill out this short form:", "bot");
-      const label = window.Funnel && Funnel.state && Funnel.state.productLabel ? Funnel.state.productLabel : "Beratung";
-      const qual  = window.Funnel && Funnel.state ? (Funnel.state.data || {}) : {};
+      appendMessage(
+        lang === "de"
+          ? "Super! Bitte füllen Sie dieses kurze Formular aus:"
+          : "Great! Please fill out this short form:",
+        "bot"
+      );
+      const label =
+        window.Funnel && Funnel.state && Funnel.state.productLabel
+          ? Funnel.state.productLabel
+          : "Beratung";
+      const qual = window.Funnel && Funnel.state ? Funnel.state.data || {} : {};
       openLeadForm(label, qual);
       offerFAQFollowup(lang);
       return true;
@@ -605,7 +750,8 @@
         appendMessage(opt.label, "user");
         Funnel.state.data[fieldKey] = opt.value;
         if (fieldKey === "timeline") {
-          if (typeof window.onTimelineSelected === "function") window.onTimelineSelected(opt.value);
+          if (typeof window.onTimelineSelected === "function")
+            window.onTimelineSelected(opt.value);
           group.remove();
           return;
         }
@@ -614,7 +760,10 @@
       };
       group.appendChild(b);
     });
-    if (chatLog) { chatLog.appendChild(group); chatLog.scrollTop = chatLog.scrollHeight; }
+    if (chatLog) {
+      chatLog.appendChild(group);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
   }
 
   function askCards(text, options, fieldKey) {
@@ -626,8 +775,12 @@
       b.type = "button";
       b.className = "pv-card";
       b.innerHTML =
-        (opt.emoji ? '<div class="pv-card__emoji">' + opt.emoji + "</div>" : "") +
-        '<div class="pv-card__label">' + opt.label + "</div>";
+        (opt.emoji
+          ? '<div class="pv-card__emoji">' + opt.emoji + "</div>"
+          : "") +
+        '<div class="pv-card__label">' +
+        opt.label +
+        "</div>";
       b.onclick = function () {
         appendMessage(opt.label, "user");
         Funnel.state.data[fieldKey] = opt.value;
@@ -636,7 +789,10 @@
       };
       grid.appendChild(b);
     });
-    if (chatLog) { chatLog.appendChild(grid); chatLog.scrollTop = chatLog.scrollHeight; }
+    if (chatLog) {
+      chatLog.appendChild(grid);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
   }
 
   // UPDATED: localized askInput
@@ -647,7 +803,8 @@
 
     const inp = document.createElement("input");
     inp.className = "text-input";
-    inp.placeholder = _lang === "de" ? "Antwort eingeben..." : "Type your answer...";
+    inp.placeholder =
+      _lang === "de" ? "Antwort eingeben..." : "Type your answer...";
 
     const btn = document.createElement("button");
     btn.className = "quick-btn";
@@ -661,8 +818,12 @@
 
     // — Enter-to-continue (IME-safe)
     let composing = false;
-    inp.addEventListener("compositionstart", () => { composing = true; });
-    inp.addEventListener("compositionend",   () => { composing = false; });
+    inp.addEventListener("compositionstart", () => {
+      composing = true;
+    });
+    inp.addEventListener("compositionend", () => {
+      composing = false;
+    });
     inp.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !composing) {
         e.preventDefault();
@@ -673,30 +834,264 @@
     btn.onclick = function () {
       const val = (inp.value || "").trim();
       if (validator && !validator(val)) {
-        alert(_lang === "de" ? "Bitte gültige Eingabe." : "Please enter a valid value.");
+        alert(
+          _lang === "de"
+            ? "Bitte gültige Eingabe."
+            : "Please enter a valid value."
+        );
         return;
       }
       appendMessage(val, "user");
       Funnel.state.data[fieldKey] = val;
 
       // UX mobile: tutup keyboard biar terasa cepat
-      try { if (/Mobi|Android/i.test(navigator.userAgent)) inp.blur(); } catch (_){}
+      try {
+        if (/Mobi|Android/i.test(navigator.userAgent)) inp.blur();
+      } catch (_) {}
 
-      askNext();                 // >>> lanjut ke langkah berikutnya
+      askNext(); // >>> lanjut ke langkah berikutnya
       wrap.remove();
     };
 
-    if (chatLog) { chatLog.appendChild(wrap); chatLog.scrollTop = chatLog.scrollHeight; }
-    inp.focus();                 // langsung fokus supaya user tinggal tekan Enter
+    if (chatLog) {
+      chatLog.appendChild(wrap);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+    inp.focus(); // langsung fokus supaya user tinggal tekan Enter
+  }
+
+  // Address input with Google Places autocomplete
+  function askInputAddress(text) {
+    appendMessage(text, "bot");
+
+    const _lang = (langSwitcher && langSwitcher.value) || "de";
+
+    const inp = document.createElement("input");
+    inp.className = "text-input";
+    inp.placeholder =
+      _lang === "de" ? "Beginnen Sie mit der Eingabe..." : "Start typing...";
+
+    const btn = document.createElement("button");
+    btn.className = "quick-btn";
+    btn.type = "button";
+    btn.innerText = _lang === "de" ? "Weiter" : "Continue";
+    btn.disabled = true; // Disabled until place is selected
+
+    const wrap = document.createElement("div");
+    wrap.className = "quick-group";
+    wrap.style.position = "relative";
+    wrap.appendChild(inp);
+    wrap.appendChild(btn);
+
+    // Autocomplete dropdown
+    let autocompleteTimeout = null;
+    let autocompleteDropdown = null;
+    let selectedPlace = null;
+
+    function createAutocompleteDropdown() {
+      if (!autocompleteDropdown) {
+        autocompleteDropdown = document.createElement("div");
+        autocompleteDropdown.style.cssText = `
+          position: absolute;
+          background: white;
+          border: 1px solid #ccc;
+          border-radius: 8px;
+          max-height: 200px;
+          overflow-y: auto;
+          z-index: 10000;
+          width: ${inp.offsetWidth}px;
+          box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+          top: ${inp.offsetHeight + 5}px;
+          left: 0;
+        `;
+        wrap.appendChild(autocompleteDropdown);
+      }
+      return autocompleteDropdown;
+    }
+
+    function hideAutocomplete() {
+      if (autocompleteDropdown) {
+        autocompleteDropdown.style.display = "none";
+      }
+    }
+
+    function showAutocomplete() {
+      if (autocompleteDropdown) {
+        autocompleteDropdown.style.display = "block";
+      }
+    }
+
+    async function handlePlaceSelection(placeId) {
+      try {
+        const res = await fetch(
+          _api("/places/details?place_id=" + encodeURIComponent(placeId))
+        );
+        const data = await res.json();
+
+        if (data.status === "OK" && data.result) {
+          const place = data.result;
+          const components = place.address_components || [];
+
+          // Extract address components
+          const streetNumber = components.find((c) =>
+            c.types.includes("street_number")
+          );
+          const route = components.find((c) => c.types.includes("route"));
+          const postalCode = components.find((c) =>
+            c.types.includes("postal_code")
+          );
+          const locality = components.find((c) => c.types.includes("locality"));
+          const province = components.find((c) =>
+            c.types.includes("administrative_area_level_1")
+          );
+
+          // Store place data with ALL required info
+          selectedPlace = {
+            street_and_number:
+              route && streetNumber
+                ? route.long_name + " " + streetNumber.long_name
+                : route
+                ? route.long_name
+                : "",
+            zip_and_city:
+              postalCode && locality
+                ? postalCode.long_name + " " + locality.long_name
+                : "",
+            province: province ? province.long_name : "",
+            lat: place.geometry?.location?.lat || null,
+            lng: place.geometry?.location?.lng || null,
+            formatted_address: place.formatted_address,
+          };
+
+          // Update input with selected address
+          inp.value =
+            selectedPlace.formatted_address || place.formatted_address;
+          btn.disabled = false; // Enable continue button
+        }
+      } catch (err) {
+        console.error("Failed to get place details:", err);
+        alert(
+          _lang === "de"
+            ? "Fehler beim Laden der Adressdaten"
+            : "Error loading address data"
+        );
+      }
+      hideAutocomplete();
+    }
+
+    // Autocomplete on input
+    inp.addEventListener("input", async function () {
+      const query = inp.value.trim();
+      btn.disabled = true; // Disable until new selection
+      selectedPlace = null;
+
+      clearTimeout(autocompleteTimeout);
+
+      if (query.length < 1) {
+        hideAutocomplete();
+        return;
+      }
+
+      autocompleteTimeout = setTimeout(async function () {
+        try {
+          const res = await fetch(
+            _api("/places/autocomplete?input=" + encodeURIComponent(query))
+          );
+          const data = await res.json();
+
+          if (
+            data.status === "OK" &&
+            data.predictions &&
+            data.predictions.length > 0
+          ) {
+            const dropdown = createAutocompleteDropdown();
+            dropdown.innerHTML = "";
+
+            data.predictions.forEach(function (prediction) {
+              const item = document.createElement("div");
+              item.style.cssText = `
+                padding: 10px;
+                cursor: pointer;
+                border-bottom: 1px solid #eee;
+              `;
+              item.textContent = prediction.description;
+              item.addEventListener("mouseenter", function () {
+                item.style.backgroundColor = "#f0f0f0";
+              });
+              item.addEventListener("mouseleave", function () {
+                item.style.backgroundColor = "white";
+              });
+              item.addEventListener("click", function () {
+                handlePlaceSelection(prediction.place_id);
+              });
+              dropdown.appendChild(item);
+            });
+
+            showAutocomplete();
+          } else {
+            hideAutocomplete();
+          }
+        } catch (err) {
+          console.error("Autocomplete error:", err);
+          hideAutocomplete();
+        }
+      }, 300);
+    });
+
+    // Hide autocomplete when clicking outside
+    document.addEventListener("click", function (e) {
+      if (e.target !== inp && !autocompleteDropdown?.contains(e.target)) {
+        hideAutocomplete();
+      }
+    });
+
+    btn.onclick = function () {
+      if (!selectedPlace || !selectedPlace.lat || !selectedPlace.lng) {
+        alert(
+          _lang === "de"
+            ? "Bitte wählen Sie eine Adresse aus der Liste aus."
+            : "Please select an address from the list."
+        );
+        return;
+      }
+
+      // Save ALL data to Funnel.state.data
+      Funnel.state.data.property_street_number =
+        selectedPlace.street_and_number;
+      Funnel.state.data.plz = selectedPlace.zip_and_city;
+      Funnel.state.data.province = selectedPlace.province;
+      Funnel.state.data.latitude = selectedPlace.lat;
+      Funnel.state.data.longitude = selectedPlace.lng;
+
+      appendMessage(selectedPlace.formatted_address, "user");
+
+      // UX mobile: tutup keyboard biar terasa cepat
+      try {
+        if (/Mobi|Android/i.test(navigator.userAgent)) inp.blur();
+      } catch (_) {}
+
+      askNext();
+      wrap.remove();
+    };
+
+    if (chatLog) {
+      chatLog.appendChild(wrap);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+    inp.focus();
   }
 
   // UPDATED: tidy askContact
   function askContact() {
     const lang = (langSwitcher && langSwitcher.value) || "de";
-    const opts = (lang === "de"
-      ? ["0–3 Monate","3–6 Monate","6–12 Monate"]
-      : ["0–3 months","3–6 months","6–12 months"]
-    ).map((t, i) => ({ label: t, value: i === 0 ? "0-3" : i === 1 ? "3-6" : "6-12" }));
+    const opts = (
+      lang === "de"
+        ? ["0–3 Monate", "3–6 Monate", "6–12 Monate"]
+        : ["0–3 months", "3–6 months", "6–12 months"]
+    ).map((t, i) => ({
+      label: t,
+      value: i === 0 ? "0-3" : i === 1 ? "3-6" : "6-12",
+    }));
     askQuick(Q.install_timeline_q[lang], opts, "timeline");
   }
 
@@ -705,14 +1100,19 @@
     track("lead.exit", { product: Funnel.state.product, reason: reason });
     Funnel.state.data.qualified = false;
     Funnel.state.data.disqualifyReason = reason;
-    const txt = (lang==="de")
-      ? "Danke für dein Interesse! Aufgrund deiner Antworten können wir dir leider keine passende Dienstleistung anbieten. Schau aber gerne mal auf unserer Webseite vorbei!"
-      : "Thanks for your interest! Based on your answers we currently have no matching service. Feel free to check our website!";
+    const txt =
+      lang === "de"
+        ? "Danke für dein Interesse! Aufgrund deiner Antworten können wir dir leider keine passende Dienstleistung anbieten. Schau aber gerne mal auf unserer Webseite vorbei!"
+        : "Thanks for your interest! Based on your answers we currently have no matching service. Feel free to check our website!";
     const div = document.createElement("div");
     div.className = "exit-bubble";
     div.innerText = txt;
-    if (chatLog){ chatLog.appendChild(div); chatLog.scrollTop = chatLog.scrollHeight; }
-    if (typeof window.sendDisqualifiedLead === "function") window.sendDisqualifiedLead(reason);
+    if (chatLog) {
+      chatLog.appendChild(div);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+    if (typeof window.sendDisqualifiedLead === "function")
+      window.sendDisqualifiedLead(reason);
   }
 
   /* ---------------------------
@@ -720,20 +1120,73 @@
   ----------------------------*/
   const Funnel = {
     state: { product: null, productLabel: null, data: {} },
-    reset: function () { this.state = { product: null, productLabel: null, data: {} }; },
+    reset: function () {
+      this.state = { product: null, productLabel: null, data: {} };
+    },
     progressByFields: function () {
       const d = this.state.data || {};
       const mapNeeded = {
-        pv: ["install_location","building_type","self_occupied","ownership","roof_type","storage_interest","install_timeline","property_street_number","contact_time_window"],
-        heatpump: ["building_type","living_area","heating_type","insulation","install_timeline","property_street_number","contact_time_window"],
-        aircon: ["building_type","rooms_count","cool_area","install_timeline","property_street_number","contact_time_window"],
-        roof: ["roof_type","area_sqm","issues","install_timeline","property_street_number","contact_time_window"],
-        tenant: ["building_type","units","ownership","install_timeline","property_street_number","contact_time_window"],
-        window: ["window_type","window_count","needs_balcony_door","window_accessory","install_timeline","plz","contact_time_window"]
+        pv: [
+          "install_location",
+          "building_type",
+          "self_occupied",
+          "ownership",
+          "roof_type",
+          "storage_interest",
+          "install_timeline",
+          "property_street_number",
+          "contact_time_window",
+        ],
+        heatpump: [
+          "building_type",
+          "living_area",
+          "heating_type",
+          "insulation",
+          "install_timeline",
+          "property_street_number",
+          "contact_time_window",
+        ],
+        aircon: [
+          "building_type",
+          "rooms_count",
+          "cool_area",
+          "install_timeline",
+          "property_street_number",
+          "contact_time_window",
+        ],
+        roof: [
+          "roof_type",
+          "area_sqm",
+          "issues",
+          "install_timeline",
+          "property_street_number",
+          "contact_time_window",
+        ],
+        tenant: [
+          "building_type",
+          "units",
+          "ownership",
+          "install_timeline",
+          "property_street_number",
+          "contact_time_window",
+        ],
+        window: [
+          "window_type",
+          "window_count",
+          "needs_balcony_door",
+          "window_accessory",
+          "install_timeline",
+          "plz",
+          "contact_time_window",
+        ],
       };
       const needed = mapNeeded[this.state.product] || [];
-      const answered = needed.filter(function (k) { return d[k] !== undefined && d[k] !== null && d[k] !== ""; }).length;
-      const percent = needed.length ? Math.min(100, Math.round((answered / needed.length) * 100)) : 0;
+      const answered = needed.filter(function (k) {
+        return d[k] !== undefined && d[k] !== null && d[k] !== "";
+      }).length;
+      const percent = needed.length
+        ? Math.min(100, Math.round((answered / needed.length) * 100))
+        : 0;
       this.progress(percent);
     },
     progress: function (percent) {
@@ -757,13 +1210,26 @@
 
   function askNext() {
     switch (Funnel.state.product) {
-      case "pv":       askNextPV();    break;
-      case "heatpump": askNextHP();    break;
-      case "aircon":   askNextAC();    break;
-      case "roof":     askNextRoof();  break;
-      case "tenant":   askNextTenant();break;
-      case "window":   askNextWindow();break;
-      default: break;
+      case "pv":
+        askNextPV();
+        break;
+      case "heatpump":
+        askNextHP();
+        break;
+      case "aircon":
+        askNextAC();
+        break;
+      case "roof":
+        askNextRoof();
+        break;
+      case "tenant":
+        askNextTenant();
+        break;
+      case "window":
+        askNextWindow();
+        break;
+      default:
+        break;
     }
   }
 
@@ -773,236 +1239,728 @@
     const d = Funnel.state.data;
     Funnel.progressByFields();
     if (d.install_location === undefined) {
-      const opts = (lang==="de"
-        ? [{label:"Einfamilienhaus",value:"einfamilienhaus",emoji:"🏠"},
-           {label:"Mehrfamilienhaus",value:"mehrfamilienhaus",emoji:"🏢"},
-           {label:"Gewerbeimmobilie",value:"gewerbeimmobilie",emoji:"🏭"},
-           {label:"Sonstiges",value:"sonstiges",emoji:"✨"}]
-        : [{label:"Single-family",value:"einfamilienhaus",emoji:"🏠"},
-           {label:"Multi-family",value:"mehrfamilienhaus",emoji:"🏢"},
-           {label:"Commercial",value:"gewerbeimmobilie",emoji:"🏭"},
-           {label:"Other",value:"sonstiges",emoji:"✨"}]);
-      askCards(Q.install_location_q[lang], opts, "install_location"); return;
+      const opts =
+        lang === "de"
+          ? [
+              {
+                label: "Einfamilienhaus",
+                value: "einfamilienhaus",
+                emoji: "🏠",
+              },
+              {
+                label: "Mehrfamilienhaus",
+                value: "mehrfamilienhaus",
+                emoji: "🏢",
+              },
+              {
+                label: "Gewerbeimmobilie",
+                value: "gewerbeimmobilie",
+                emoji: "🏭",
+              },
+              { label: "Sonstiges", value: "sonstiges", emoji: "✨" },
+            ]
+          : [
+              { label: "Single-family", value: "einfamilienhaus", emoji: "🏠" },
+              { label: "Multi-family", value: "mehrfamilienhaus", emoji: "🏢" },
+              { label: "Commercial", value: "gewerbeimmobilie", emoji: "🏭" },
+              { label: "Other", value: "sonstiges", emoji: "✨" },
+            ];
+      askCards(Q.install_location_q[lang], opts, "install_location");
+      return;
     }
-    if (d.install_location==="einfamilienhaus" && d.building_type === undefined) {
-      const arr = (lang==="de" ? ["Freistehendes Haus","Doppelhaushälfte","Reihenmittelhaus","Reihenendhaus"] : ["Detached","Semi-detached","Mid-terrace","End-terrace"]);
-      askCards(Q.building_type_q[lang], arr.map(function(t){return {label:t,value:t.toLowerCase().replace(/\s/g,"_"),emoji:"🏡"};}), "building_type"); return;
+    if (
+      d.install_location === "einfamilienhaus" &&
+      d.building_type === undefined
+    ) {
+      const arr =
+        lang === "de"
+          ? [
+              "Freistehendes Haus",
+              "Doppelhaushälfte",
+              "Reihenmittelhaus",
+              "Reihenendhaus",
+            ]
+          : ["Detached", "Semi-detached", "Mid-terrace", "End-terrace"];
+      askCards(
+        Q.building_type_q[lang],
+        arr.map(function (t) {
+          return {
+            label: t,
+            value: t.toLowerCase().replace(/\s/g, "_"),
+            emoji: "🏡",
+          };
+        }),
+        "building_type"
+      );
+      return;
     }
     if (d.self_occupied === undefined) {
-      askCards(Q.self_occupied_q[lang], (lang==="de"?["Ja","Nein"]:["Yes","No"]).map(function(t,i){return {label:t,value:i===0,emoji:i===0?"✅":"🚫"};}), "self_occupied"); return;
+      askCards(
+        Q.self_occupied_q[lang],
+        (lang === "de" ? ["Ja", "Nein"] : ["Yes", "No"]).map(function (t, i) {
+          return { label: t, value: i === 0, emoji: i === 0 ? "✅" : "🚫" };
+        }),
+        "self_occupied"
+      );
+      return;
     }
     if (d.ownership === undefined) {
-      askCards(Q.ownership_q[lang], (lang==="de"?["Ja","Nein"]:["Yes","No"]).map(function(t,i){return {label:t,value:i===0,emoji:i===0?"🔑":"🚫"};}), "ownership"); return;
+      askCards(
+        Q.ownership_q[lang],
+        (lang === "de" ? ["Ja", "Nein"] : ["Yes", "No"]).map(function (t, i) {
+          return { label: t, value: i === 0, emoji: i === 0 ? "🔑" : "🚫" };
+        }),
+        "ownership"
+      );
+      return;
     }
     if (d.roof_type === undefined) {
-      const arr = (lang==="de"?["Flachdach","Spitzdach","Andere"]:["Flat","Pitched","Other"]);
-      askCards(Q.roof_type_q[lang], arr.map(function(t){return {label:t,value:t.toLowerCase(),emoji:"🏚️"};}), "roof_type"); return;
+      const arr =
+        lang === "de"
+          ? ["Flachdach", "Spitzdach", "Andere"]
+          : ["Flat", "Pitched", "Other"];
+      askCards(
+        Q.roof_type_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t.toLowerCase(), emoji: "🏚️" };
+        }),
+        "roof_type"
+      );
+      return;
     }
     if (d.storage_interest === undefined) {
-      const arr = (lang==="de"?["Ja","Nein","Unsicher"]:["Yes","No","Unsure"]);
-      askCards(Q.storage_interest_q[lang], arr.map(function(t){return {label:t,value:t.toLowerCase(),emoji:"🔋"};}), "storage_interest"); return;
+      const arr =
+        lang === "de" ? ["Ja", "Nein", "Unsicher"] : ["Yes", "No", "Unsure"];
+      askCards(
+        Q.storage_interest_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t.toLowerCase(), emoji: "🔋" };
+        }),
+        "storage_interest"
+      );
+      return;
     }
     if (d.install_timeline === undefined) {
-      const opts = (lang==="de"
-        ? [{label:"So schnell wie möglich",value:"asap"},{label:"In 1–3 Monaten",value:"1-3"},{label:"In 4–6 Monaten",value:"4-6"},{label:"In mehr als 6 Monaten",value:">6"}]
-        : [{label:"As soon as possible",value:"asap"},{label:"In 1–3 months",value:"1-3"},{label:"In 4–6 months",value:"4-6"},{label:"In more than 6 months",value:">6"}]);
-      askCards(Q.install_timeline_q[lang], opts, "install_timeline"); return;
+      const opts =
+        lang === "de"
+          ? [
+              { label: "So schnell wie möglich", value: "asap" },
+              { label: "In 1–3 Monaten", value: "1-3" },
+              { label: "In 4–6 Monaten", value: "4-6" },
+              { label: "In mehr als 6 Monaten", value: ">6" },
+            ]
+          : [
+              { label: "As soon as possible", value: "asap" },
+              { label: "In 1–3 months", value: "1-3" },
+              { label: "In 4–6 months", value: "4-6" },
+              { label: "In more than 6 months", value: ">6" },
+            ];
+      askCards(Q.install_timeline_q[lang], opts, "install_timeline");
+      return;
     }
-    if (d.property_street_number === undefined) { askInput(Q.property_street_q[lang], "property_street_number", function(v){ return String(v||"").trim().length > 3; }); return; }
+    if (d.property_street_number === undefined) {
+      askInputAddress(Q.property_street_q[lang]);
+      return;
+    }
     if (d.contact_time_window === undefined) {
-      const arr = (lang==="de"?["08:00–12:00","12:00–16:00","16:00–20:00","Egal / zu jeder Zeit"]:["08:00–12:00","12:00–16:00","16:00–20:00","Any time"]);
-      askCards(Q.contact_time_q[lang], arr.map(function(t){return {label:t,value:t};}), "contact_time_window"); return;
+      const arr =
+        lang === "de"
+          ? [
+              "08:00–12:00",
+              "12:00–16:00",
+              "16:00–20:00",
+              "Egal / zu jeder Zeit",
+            ]
+          : ["08:00–12:00", "12:00–16:00", "16:00–20:00", "Any time"];
+      askCards(
+        Q.contact_time_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t };
+        }),
+        "contact_time_window"
+      );
+      return;
     }
     if (!d.__done_perspective_summary) {
       d.__done_perspective_summary = true;
-      appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
-      if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
+      appendMessage(
+        lang === "de"
+          ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:"
+          : "Almost done! We just need your contact details:",
+        "bot"
+      );
+      if (typeof window.showSummaryFromFunnel === "function")
+        window.showSummaryFromFunnel(d);
       openLeadForm(Funnel.state.productLabel || "Photovoltaik", d);
     }
   }
 
   // ===== Heatpump
-  function askNextHP(){
+  function askNextHP() {
     const lang = (langSwitcher && langSwitcher.value) || "de";
     const d = Funnel.state.data;
     Funnel.progressByFields();
-    if (d.building_type === undefined){
-      const arr = (lang==="de"?["Einfamilienhaus","Doppelhaushälfte","Reihenhaus","Mehrfamilienhaus","Gewerbe"]:["Single-family","Semi-detached","Terraced","Multi-family","Commercial"]);
-      askCards(lang==="de"?"Welcher Gebäudetyp?":"What building type?", arr.map(function(t,i){return {label:t,value:t.toLowerCase().replace(/\s/g,"_"),emoji:["🏠","🏠","🏘️","🏢","🏭"][i]};}), "building_type"); return;
+    if (d.building_type === undefined) {
+      const arr =
+        lang === "de"
+          ? [
+              "Einfamilienhaus",
+              "Doppelhaushälfte",
+              "Reihenhaus",
+              "Mehrfamilienhaus",
+              "Gewerbe",
+            ]
+          : [
+              "Single-family",
+              "Semi-detached",
+              "Terraced",
+              "Multi-family",
+              "Commercial",
+            ];
+      askCards(
+        lang === "de" ? "Welcher Gebäudetyp?" : "What building type?",
+        arr.map(function (t, i) {
+          return {
+            label: t,
+            value: t.toLowerCase().replace(/\s/g, "_"),
+            emoji: ["🏠", "🏠", "🏘️", "🏢", "🏭"][i],
+          };
+        }),
+        "building_type"
+      );
+      return;
     }
-    if (d.living_area === undefined){
-      const arr = (lang==="de"?["bis 100 m²","101–200 m²","201–300 m²","über 300 m²"]:["up to 100 m²","101–200 m²","201–300 m²","over 300 m²"]);
-      askCards(lang==="de"?"Wohnfläche?":"Living area?", arr.map(function(t,i){return {label:t,value:["<=100","101-200","201-300",">300"][i]};}), "living_area"); return;
+    if (d.living_area === undefined) {
+      const arr =
+        lang === "de"
+          ? ["bis 100 m²", "101–200 m²", "201–300 m²", "über 300 m²"]
+          : ["up to 100 m²", "101–200 m²", "201–300 m²", "over 300 m²"];
+      askCards(
+        lang === "de" ? "Wohnfläche?" : "Living area?",
+        arr.map(function (t, i) {
+          return {
+            label: t,
+            value: ["<=100", "101-200", "201-300", ">300"][i],
+          };
+        }),
+        "living_area"
+      );
+      return;
     }
-    if (d.heating_type === undefined){
-      const arr = (lang==="de"?["Gas","Öl","Stromdirekt","Andere"]:["Gas","Oil","Direct electric","Other"]);
-      askCards(Q.heatingType_q[lang], arr.map(function(t){return {label:t,value:t.toLowerCase(),emoji:"🔥"};}), "heating_type"); return;
+    if (d.heating_type === undefined) {
+      const arr =
+        lang === "de"
+          ? ["Gas", "Öl", "Stromdirekt", "Andere"]
+          : ["Gas", "Oil", "Direct electric", "Other"];
+      askCards(
+        Q.heatingType_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t.toLowerCase(), emoji: "🔥" };
+        }),
+        "heating_type"
+      );
+      return;
     }
-    if (d.insulation === undefined){
-      const arr = (lang==="de"?["Gut","Mittel","Schlecht","Unbekannt"]:["Good","Average","Poor","Unknown"]);
-      askCards(lang==="de"?"Wärmedämmung des Gebäudes?":"Building insulation level?", arr.map(function(t){return {label:t,value:t.toLowerCase(),emoji:"🧱"};}), "insulation"); return;
+    if (d.insulation === undefined) {
+      const arr =
+        lang === "de"
+          ? ["Gut", "Mittel", "Schlecht", "Unbekannt"]
+          : ["Good", "Average", "Poor", "Unknown"];
+      askCards(
+        lang === "de"
+          ? "Wärmedämmung des Gebäudes?"
+          : "Building insulation level?",
+        arr.map(function (t) {
+          return { label: t, value: t.toLowerCase(), emoji: "🧱" };
+        }),
+        "insulation"
+      );
+      return;
     }
-    if (d.install_timeline === undefined){
-      const opts = (lang==="de"
-        ? [{label:"Schnellstmöglich",value:"asap"},{label:"1–3 Monate",value:"1-3"},{label:"4–6 Monate",value:"4-6"},{label:">6 Monate",value:">6"}]
-        : [{label:"ASAP",value:"asap"},{label:"1–3 months",value:"1-3"},{label:"4–6 months",value:"4-6"},{label:">6 months",value:">6"}]);
-      askCards(Q.install_timeline_q[lang], opts, "install_timeline"); return;
+    if (d.install_timeline === undefined) {
+      const opts =
+        lang === "de"
+          ? [
+              { label: "Schnellstmöglich", value: "asap" },
+              { label: "1–3 Monate", value: "1-3" },
+              { label: "4–6 Monate", value: "4-6" },
+              { label: ">6 Monate", value: ">6" },
+            ]
+          : [
+              { label: "ASAP", value: "asap" },
+              { label: "1–3 months", value: "1-3" },
+              { label: "4–6 months", value: "4-6" },
+              { label: ">6 months", value: ">6" },
+            ];
+      askCards(Q.install_timeline_q[lang], opts, "install_timeline");
+      return;
     }
-    if (d.property_street_number === undefined){ askInput(Q.property_street_q[lang], "property_street_number", function(v){ return String(v||"").trim().length > 3; }); return; }
-    if (d.contact_time_window === undefined){
-      const arr = (lang==="de"?["08:00–12:00","12:00–16:00","16:00–20:00","Egal / zu jeder Zeit"]:["08:00–12:00","12:00–16:00","16:00–20:00","Any time"]);
-      askCards(Q.contact_time_q[lang], arr.map(function(t){return {label:t,value:t};}), "contact_time_window"); return;
+    if (d.property_street_number === undefined) {
+      askInputAddress(Q.property_street_q[lang]);
+      return;
     }
-    if (!d.__hp_done){
+    if (d.contact_time_window === undefined) {
+      const arr =
+        lang === "de"
+          ? [
+              "08:00–12:00",
+              "12:00–16:00",
+              "16:00–20:00",
+              "Egal / zu jeder Zeit",
+            ]
+          : ["08:00–12:00", "12:00–16:00", "16:00–20:00", "Any time"];
+      askCards(
+        Q.contact_time_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t };
+        }),
+        "contact_time_window"
+      );
+      return;
+    }
+    if (!d.__hp_done) {
       d.__hp_done = true;
-      appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
-      if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
+      appendMessage(
+        lang === "de"
+          ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:"
+          : "Almost done! We just need your contact details:",
+        "bot"
+      );
+      if (typeof window.showSummaryFromFunnel === "function")
+        window.showSummaryFromFunnel(d);
       openLeadForm(Funnel.state.productLabel || "Wärmepumpe", d);
     }
   }
 
   // ===== Aircon
-  function askNextAC(){
+  function askNextAC() {
     const lang = (langSwitcher && langSwitcher.value) || "de";
     const d = Funnel.state.data;
     Funnel.progressByFields();
-    if (d.building_type === undefined){
-      const arr = (lang==="de"?["Einfamilienhaus","Wohnung","Büro","Gewerbehalle"]:["Single-family","Apartment","Office","Commercial hall"]);
-      askCards(lang==="de"?"Welcher Gebäudetyp?":"What building type?", arr.map(function(t,i){return {label:t,value:t.toLowerCase().replace(/\s/g,"_"),emoji:["🏠","🏢","💼","🏭"][i]};}), "building_type"); return;
+    if (d.building_type === undefined) {
+      const arr =
+        lang === "de"
+          ? ["Einfamilienhaus", "Wohnung", "Büro", "Gewerbehalle"]
+          : ["Single-family", "Apartment", "Office", "Commercial hall"];
+      askCards(
+        lang === "de" ? "Welcher Gebäudetyp?" : "What building type?",
+        arr.map(function (t, i) {
+          return {
+            label: t,
+            value: t.toLowerCase().replace(/\s/g, "_"),
+            emoji: ["🏠", "🏢", "💼", "🏭"][i],
+          };
+        }),
+        "building_type"
+      );
+      return;
     }
-    if (d.rooms_count === undefined){
-      const arr = (lang==="de"?["1 Raum","2 Räume","3 Räume","mehr als 3"]:["1 room","2 rooms","3 rooms","more than 3"]);
-      askCards(lang==="de"?"Wie viele Räume?":"How many rooms?", arr.map(function(t,i){return {label:t,value:["1","2","3",">3"][i]};}), "rooms_count"); return;
+    if (d.rooms_count === undefined) {
+      const arr =
+        lang === "de"
+          ? ["1 Raum", "2 Räume", "3 Räume", "mehr als 3"]
+          : ["1 room", "2 rooms", "3 rooms", "more than 3"];
+      askCards(
+        lang === "de" ? "Wie viele Räume?" : "How many rooms?",
+        arr.map(function (t, i) {
+          return { label: t, value: ["1", "2", "3", ">3"][i] };
+        }),
+        "rooms_count"
+      );
+      return;
     }
-    if (d.cool_area === undefined){
-      const arr = (lang==="de"?["bis 30 m²","31–60 m²","61–100 m²","über 100 m²"]:["up to 30 m²","31–60 m²","61–100 m²","over 100 m²"]);
-      askCards(lang==="de"?"Zu kühlende Fläche?":"Cooling area?", arr.map(function(t,i){return {label:t,value:["<=30","31-60","61-100",">100"][i]};}), "cool_area"); return;
+    if (d.cool_area === undefined) {
+      const arr =
+        lang === "de"
+          ? ["bis 30 m²", "31–60 m²", "61–100 m²", "über 100 m²"]
+          : ["up to 30 m²", "31–60 m²", "61–100 m²", "over 100 m²"];
+      askCards(
+        lang === "de" ? "Zu kühlende Fläche?" : "Cooling area?",
+        arr.map(function (t, i) {
+          return { label: t, value: ["<=30", "31-60", "61-100", ">100"][i] };
+        }),
+        "cool_area"
+      );
+      return;
     }
-    if (d.install_timeline === undefined){
-      const opts = (lang==="de"
-        ? [{label:"Schnellstmöglich",value:"asap"},{label:"1–3 Monate",value:"1-3"},{label:"4–6 Monate",value:"4-6"},{label:">6 Monate",value:">6"}]
-        : [{label:"ASAP",value:"asap"},{label:"1–3 months",value:"1-3"},{label:"4–6 months",value:"4-6"},{label:">6 months",value:">6"}]);
-      askCards(Q.install_timeline_q[lang], opts, "install_timeline"); return;
+    if (d.install_timeline === undefined) {
+      const opts =
+        lang === "de"
+          ? [
+              { label: "Schnellstmöglich", value: "asap" },
+              { label: "1–3 Monate", value: "1-3" },
+              { label: "4–6 Monate", value: "4-6" },
+              { label: ">6 Monate", value: ">6" },
+            ]
+          : [
+              { label: "ASAP", value: "asap" },
+              { label: "1–3 months", value: "1-3" },
+              { label: "4–6 months", value: "4-6" },
+              { label: ">6 months", value: ">6" },
+            ];
+      askCards(Q.install_timeline_q[lang], opts, "install_timeline");
+      return;
     }
-    if (d.property_street_number === undefined){ askInput(Q.property_street_q[lang], "property_street_number", function(v){ return String(v||"").trim().length > 3; }); return; }
-    if (d.contact_time_window === undefined){
-      const arr = (lang==="de"?["08:00–12:00","12:00–16:00","16:00–20:00","Egal / zu jeder Zeit"]:["08:00–12:00","12:00–16:00","16:00–20:00","Any time"]);
-      askCards(Q.contact_time_q[lang], arr.map(function(t){return {label:t,value:t};}), "contact_time_window"); return;
+    if (d.property_street_number === undefined) {
+      askInputAddress(Q.property_street_q[lang]);
+      return;
     }
-    if (!d.__ac_done){
+    if (d.contact_time_window === undefined) {
+      const arr =
+        lang === "de"
+          ? [
+              "08:00–12:00",
+              "12:00–16:00",
+              "16:00–20:00",
+              "Egal / zu jeder Zeit",
+            ]
+          : ["08:00–12:00", "12:00–16:00", "16:00–20:00", "Any time"];
+      askCards(
+        Q.contact_time_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t };
+        }),
+        "contact_time_window"
+      );
+      return;
+    }
+    if (!d.__ac_done) {
       d.__ac_done = true;
-      appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
-      if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
+      appendMessage(
+        lang === "de"
+          ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:"
+          : "Almost done! We just need your contact details:",
+        "bot"
+      );
+      if (typeof window.showSummaryFromFunnel === "function")
+        window.showSummaryFromFunnel(d);
       openLeadForm(Funnel.state.productLabel || "Klimaanlage", d);
     }
   }
 
   // ===== Roof
-  function askNextRoof(){
+  function askNextRoof() {
     const lang = (langSwitcher && langSwitcher.value) || "de";
     const d = Funnel.state.data;
     Funnel.progressByFields();
-    if (d.roof_type === undefined){
-      const arr = (lang==="de"?["Flachdach","Satteldach","Walmdach","Andere"]:["Flat","Gabled","Hipped","Other"]);
-      askCards(lang==="de"?"Dachform?":"Roof type?", arr.map(function(t){return {label:t,value:t.toLowerCase(),emoji:"🏚️"};}), "roof_type"); return;
+    if (d.roof_type === undefined) {
+      const arr =
+        lang === "de"
+          ? ["Flachdach", "Satteldach", "Walmdach", "Andere"]
+          : ["Flat", "Gabled", "Hipped", "Other"];
+      askCards(
+        lang === "de" ? "Dachform?" : "Roof type?",
+        arr.map(function (t) {
+          return { label: t, value: t.toLowerCase(), emoji: "🏚️" };
+        }),
+        "roof_type"
+      );
+      return;
     }
-    if (d.area_sqm === undefined){
-      const arr = (lang==="de"?["bis 50 m²","51–100 m²","101–200 m²","über 200 m²"]:["up to 50 m²","51–100 m²","101–200 m²","over 200 m²"]);
-      askCards(lang==="de"?"Dachfläche (ca.)?":"Approx. roof area?", arr.map(function(t,i){return {label:t,value:["<=50","51-100","101-200",">200"][i]};}), "area_sqm"); return;
+    if (d.area_sqm === undefined) {
+      const arr =
+        lang === "de"
+          ? ["bis 50 m²", "51–100 m²", "101–200 m²", "über 200 m²"]
+          : ["up to 50 m²", "51–100 m²", "101–200 m²", "over 200 m²"];
+      askCards(
+        lang === "de" ? "Dachfläche (ca.)?" : "Approx. roof area?",
+        arr.map(function (t, i) {
+          return { label: t, value: ["<=50", "51-100", "101-200", ">200"][i] };
+        }),
+        "area_sqm"
+      );
+      return;
     }
-    if (d.issues === undefined){
-      const arr = (lang==="de"?["Undicht","Beschädigt","Alterung","Nur Inspektion"]:["Leaking","Damaged","Aged","Inspection only"]);
-      askCards(Q.issues_q[lang], arr.map(function(t){return {label:t,value:t.toLowerCase().replace(/\s/g,"_"),emoji:"🛠️"};}), "issues"); return;
+    if (d.issues === undefined) {
+      const arr =
+        lang === "de"
+          ? ["Undicht", "Beschädigt", "Alterung", "Nur Inspektion"]
+          : ["Leaking", "Damaged", "Aged", "Inspection only"];
+      askCards(
+        Q.issues_q[lang],
+        arr.map(function (t) {
+          return {
+            label: t,
+            value: t.toLowerCase().replace(/\s/g, "_"),
+            emoji: "🛠️",
+          };
+        }),
+        "issues"
+      );
+      return;
     }
-    if (d.install_timeline === undefined){
-      const opts = (lang==="de"
-        ? [{label:"Schnellstmöglich",value:"asap"},{label:"1–3 Monate",value:"1-3"},{label:"4–6 Monate",value:"4-6"},{label:">6 Monate",value:">6"}]
-        : [{label:"ASAP",value:"asap"},{label:"1–3 months",value:"1-3"},{label:"4–6 months",value:"4-6"},{label:">6 months",value:">6"}]);
-      askCards(Q.install_timeline_q[lang], opts, "install_timeline"); return;
+    if (d.install_timeline === undefined) {
+      const opts =
+        lang === "de"
+          ? [
+              { label: "Schnellstmöglich", value: "asap" },
+              { label: "1–3 Monate", value: "1-3" },
+              { label: "4–6 Monate", value: "4-6" },
+              { label: ">6 Monate", value: ">6" },
+            ]
+          : [
+              { label: "ASAP", value: "asap" },
+              { label: "1–3 months", value: "1-3" },
+              { label: "4–6 months", value: "4-6" },
+              { label: ">6 months", value: ">6" },
+            ];
+      askCards(Q.install_timeline_q[lang], opts, "install_timeline");
+      return;
     }
-    if (d.property_street_number === undefined){ askInput(Q.property_street_q[lang], "property_street_number", function(v){ return String(v||"").trim().length > 3; }); return; }
-    if (d.contact_time_window === undefined){
-      const arr = (lang==="de"?["08:00–12:00","12:00–16:00","16:00–20:00","Egal / zu jeder Zeit"]:["08:00–12:00","12:00–16:00","16:00–20:00","Any time"]);
-      askCards(Q.contact_time_q[lang], arr.map(function(t){return {label:t,value:t};}), "contact_time_window"); return;
+    if (d.property_street_number === undefined) {
+      askInputAddress(Q.property_street_q[lang]);
+      return;
     }
-    if (!d.__roof_done){
+    if (d.contact_time_window === undefined) {
+      const arr =
+        lang === "de"
+          ? [
+              "08:00–12:00",
+              "12:00–16:00",
+              "16:00–20:00",
+              "Egal / zu jeder Zeit",
+            ]
+          : ["08:00–12:00", "12:00–16:00", "16:00–20:00", "Any time"];
+      askCards(
+        Q.contact_time_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t };
+        }),
+        "contact_time_window"
+      );
+      return;
+    }
+    if (!d.__roof_done) {
       d.__roof_done = true;
-      appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
-      if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
+      appendMessage(
+        lang === "de"
+          ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:"
+          : "Almost done! We just need your contact details:",
+        "bot"
+      );
+      if (typeof window.showSummaryFromFunnel === "function")
+        window.showSummaryFromFunnel(d);
       openLeadForm(Funnel.state.productLabel || "Dachsanierung", d);
     }
   }
 
   // ===== Tenant Power
-  function askNextTenant(){
+  function askNextTenant() {
     const lang = (langSwitcher && langSwitcher.value) || "de";
     const d = Funnel.state.data;
     Funnel.progressByFields();
-    if (d.building_type === undefined){
-      const arr = (lang==="de"?["Mehrfamilienhaus","Gewerbeimmobilie"]:["Multi-family","Commercial"]);
-      askCards(Q.building_type_q[lang], arr.map(function(t,i){return {label:t,value:t.toLowerCase().replace(/\s/g,"_"),emoji:["🏢","🏭"][i]};}), "building_type"); return;
+    if (d.building_type === undefined) {
+      const arr =
+        lang === "de"
+          ? ["Mehrfamilienhaus", "Gewerbeimmobilie"]
+          : ["Multi-family", "Commercial"];
+      askCards(
+        Q.building_type_q[lang],
+        arr.map(function (t, i) {
+          return {
+            label: t,
+            value: t.toLowerCase().replace(/\s/g, "_"),
+            emoji: ["🏢", "🏭"][i],
+          };
+        }),
+        "building_type"
+      );
+      return;
     }
-    if (d.units === undefined){
-      const arr = (lang==="de"?["1–3","4–10","11–20","über 20"]:["1–3","4–10","11–20","over 20"]);
-      askCards(lang==="de"?"Anzahl Wohneinheiten?":"Number of units?", arr.map(function(t,i){return {label:t,value:["1-3","4-10","11-20",">20"][i]};}), "units"); return;
+    if (d.units === undefined) {
+      const arr =
+        lang === "de"
+          ? ["1–3", "4–10", "11–20", "über 20"]
+          : ["1–3", "4–10", "11–20", "over 20"];
+      askCards(
+        lang === "de" ? "Anzahl Wohneinheiten?" : "Number of units?",
+        arr.map(function (t, i) {
+          return { label: t, value: ["1-3", "4-10", "11-20", ">20"][i] };
+        }),
+        "units"
+      );
+      return;
     }
-    if (d.ownership === undefined){
-      askCards(Q.ownership_q[lang], (lang==="de"?["Ja","Nein"]:["Yes","No"]).map(function(t,i){return {label:t,value:i===0,emoji:i===0?"🔑":"🚫"};}), "ownership"); return;
+    if (d.ownership === undefined) {
+      askCards(
+        Q.ownership_q[lang],
+        (lang === "de" ? ["Ja", "Nein"] : ["Yes", "No"]).map(function (t, i) {
+          return { label: t, value: i === 0, emoji: i === 0 ? "🔑" : "🚫" };
+        }),
+        "ownership"
+      );
+      return;
     }
-    if (d.install_timeline === undefined){
-      const opts = (lang==="de"
-        ? [{label:"Schnellstmöglich",value:"asap"},{label:"1–3 Monate",value:"1-3"},{label:"4–6 Monate",value:"4-6"},{label:">6 Monate",value:">6"}]
-        : [{label:"ASAP",value:"asap"},{label:"1–3 months",value:"1-3"},{label:"4–6 months",value:"4-6"},{label:">6 months",value:">6"}]);
-      askCards(Q.install_timeline_q[lang], opts, "install_timeline"); return;
+    if (d.install_timeline === undefined) {
+      const opts =
+        lang === "de"
+          ? [
+              { label: "Schnellstmöglich", value: "asap" },
+              { label: "1–3 Monate", value: "1-3" },
+              { label: "4–6 Monate", value: "4-6" },
+              { label: ">6 Monate", value: ">6" },
+            ]
+          : [
+              { label: "ASAP", value: "asap" },
+              { label: "1–3 months", value: "1-3" },
+              { label: "4–6 months", value: "4-6" },
+              { label: ">6 months", value: ">6" },
+            ];
+      askCards(Q.install_timeline_q[lang], opts, "install_timeline");
+      return;
     }
-    if (d.property_street_number === undefined){ askInput(Q.property_street_q[lang], "property_street_number", function(v){ return String(v||"").trim().length > 3; }); return; }
-    if (d.contact_time_window === undefined){
-      const arr = (lang==="de"?["08:00–12:00","12:00–16:00","16:00–20:00","Egal / zu jeder Zeit"]:["08:00–12:00","12:00–16:00","16:00–20:00","Any time"]);
-      askCards(Q.contact_time_q[lang], arr.map(function(t){return {label:t,value:t};}), "contact_time_window"); return;
+    if (d.property_street_number === undefined) {
+      askInputAddress(Q.property_street_q[lang]);
+      return;
     }
-    if (!d.__tenant_done){
+    if (d.contact_time_window === undefined) {
+      const arr =
+        lang === "de"
+          ? [
+              "08:00–12:00",
+              "12:00–16:00",
+              "16:00–20:00",
+              "Egal / zu jeder Zeit",
+            ]
+          : ["08:00–12:00", "12:00–16:00", "16:00–20:00", "Any time"];
+      askCards(
+        Q.contact_time_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t };
+        }),
+        "contact_time_window"
+      );
+      return;
+    }
+    if (!d.__tenant_done) {
       d.__tenant_done = true;
-      appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
-      if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
+      appendMessage(
+        lang === "de"
+          ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:"
+          : "Almost done! We just need your contact details:",
+        "bot"
+      );
+      if (typeof window.showSummaryFromFunnel === "function")
+        window.showSummaryFromFunnel(d);
       openLeadForm(Funnel.state.productLabel || "Mieterstrom", d);
     }
   }
 
   // ===== Window
-  function askNextWindow(){
+  function askNextWindow() {
     const lang = (langSwitcher && langSwitcher.value) || "de";
     const d = Funnel.state.data;
     Funnel.progressByFields();
-    if (d.window_type === undefined){
-      const arr = (lang==="de"?["Standardfenster","Dachfenster","Schiebefenster","Andere"]:["Standard window","Roof window","Sliding window","Other"]);
-      askCards(lang==="de"?"Welche Art von Fenster?":"Which type of window?", arr.map(function(t){return {label:t,value:t.toLowerCase().replace(/\s/g,"_"),emoji:"🪟"};}), "window_type"); return;
+    if (d.window_type === undefined) {
+      const arr =
+        lang === "de"
+          ? ["Standardfenster", "Dachfenster", "Schiebefenster", "Andere"]
+          : ["Standard window", "Roof window", "Sliding window", "Other"];
+      askCards(
+        lang === "de" ? "Welche Art von Fenster?" : "Which type of window?",
+        arr.map(function (t) {
+          return {
+            label: t,
+            value: t.toLowerCase().replace(/\s/g, "_"),
+            emoji: "🪟",
+          };
+        }),
+        "window_type"
+      );
+      return;
     }
-    if (d.window_count === undefined){
-      const arr = (lang==="de"?["1–3","4–7","8+"]:["1–3","4–7","8+"]);
-      askCards(lang==="de"?"Wie viele Fenster?":"How many windows?", arr.map(function(t){return {label:t,value:t.replace(/\s/g,"")};}), "window_count"); return;
+    if (d.window_count === undefined) {
+      const arr = lang === "de" ? ["1–3", "4–7", "8+"] : ["1–3", "4–7", "8+"];
+      askCards(
+        lang === "de" ? "Wie viele Fenster?" : "How many windows?",
+        arr.map(function (t) {
+          return { label: t, value: t.replace(/\s/g, "") };
+        }),
+        "window_count"
+      );
+      return;
     }
-    if (d.needs_balcony_door === undefined){
-      askCards(lang==="de"?"Brauchst du eine Balkon-/Schiebetür?":"Do you need a balcony/sliding door?", (lang==="de"?["Ja","Nein"]:["Yes","No"]).map(function(t,i){return {label:t,value:i===0,emoji:i===0?"🚪":"❌"};}), "needs_balcony_door"); return;
+    if (d.needs_balcony_door === undefined) {
+      askCards(
+        lang === "de"
+          ? "Brauchst du eine Balkon-/Schiebetür?"
+          : "Do you need a balcony/sliding door?",
+        (lang === "de" ? ["Ja", "Nein"] : ["Yes", "No"]).map(function (t, i) {
+          return { label: t, value: i === 0, emoji: i === 0 ? "🚪" : "❌" };
+        }),
+        "needs_balcony_door"
+      );
+      return;
     }
-    if (d.window_accessory === undefined){
-      const arr = (lang==="de"?["Rollladen","Insektenschutz","Keins","Sonstiges"]:["Roller shutter","Insect screen","None","Other"]);
-      askCards(lang==="de"?"Zubehör benötigt?":"Any accessories needed?", arr.map(function(t){return {label:t,value:t.toLowerCase().replace(/\s/g,"_")};}), "window_accessory"); return;
+    if (d.window_accessory === undefined) {
+      const arr =
+        lang === "de"
+          ? ["Rollladen", "Insektenschutz", "Keins", "Sonstiges"]
+          : ["Roller shutter", "Insect screen", "None", "Other"];
+      askCards(
+        lang === "de" ? "Zubehör benötigt?" : "Any accessories needed?",
+        arr.map(function (t) {
+          return { label: t, value: t.toLowerCase().replace(/\s/g, "_") };
+        }),
+        "window_accessory"
+      );
+      return;
     }
-    if (d.install_timeline === undefined){
-      const opts = (lang==="de"
-        ? [{label:"Schnellstmöglich",value:"asap"},{label:"4–6 Monate",value:"4-6"},{label:">6 Monate",value:">6"}]
-        : [{label:"ASAP",value:"asap"},{label:"4–6 months",value:"4-6"},{label:">6 months",value:">6"}]);
-      askCards(lang==="de"?"Zeitplan für das Projekt?":"Project timeline?", opts, "install_timeline"); return;
+    if (d.install_timeline === undefined) {
+      const opts =
+        lang === "de"
+          ? [
+              { label: "Schnellstmöglich", value: "asap" },
+              { label: "4–6 Monate", value: "4-6" },
+              { label: ">6 Monate", value: ">6" },
+            ]
+          : [
+              { label: "ASAP", value: "asap" },
+              { label: "4–6 months", value: "4-6" },
+              { label: ">6 months", value: ">6" },
+            ];
+      askCards(
+        lang === "de" ? "Zeitplan für das Projekt?" : "Project timeline?",
+        opts,
+        "install_timeline"
+      );
+      return;
     }
-    if (d.plz === undefined){ askInput(Q.plz_q[lang], "plz", function(v){ return /^\d{4,5}$/.test(String(v||"").trim()); }); return; }
-    if (d.contact_time_window === undefined){
-      const arr = (lang==="de"?["08:00–12:00","12:00–16:00","16:00–20:00","Egal / zu jeder Zeit"]:["08:00–12:00","12:00–16:00","16:00–20:00","Any time"]);
-      askCards(Q.contact_time_q[lang], arr.map(function(t){return {label:t,value:t};}), "contact_time_window"); return;
+    if (d.plz === undefined) {
+      askInput(Q.plz_q[lang], "plz", function (v) {
+        return /^\d{4,5}$/.test(String(v || "").trim());
+      });
+      return;
     }
-    if (!d.__window_done){
+    if (d.contact_time_window === undefined) {
+      const arr =
+        lang === "de"
+          ? [
+              "08:00–12:00",
+              "12:00–16:00",
+              "16:00–20:00",
+              "Egal / zu jeder Zeit",
+            ]
+          : ["08:00–12:00", "12:00–16:00", "16:00–20:00", "Any time"];
+      askCards(
+        Q.contact_time_q[lang],
+        arr.map(function (t) {
+          return { label: t, value: t };
+        }),
+        "contact_time_window"
+      );
+      return;
+    }
+    if (!d.__window_done) {
       d.__window_done = true;
-      appendMessage(lang==="de" ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:" : "Almost done! We just need your contact details:", "bot");
-      if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(d);
+      appendMessage(
+        lang === "de"
+          ? "Fast geschafft! Wir brauchen nur noch deine Kontaktdaten:"
+          : "Almost done! We just need your contact details:",
+        "bot"
+      );
+      if (typeof window.showSummaryFromFunnel === "function")
+        window.showSummaryFromFunnel(d);
       openLeadForm(Funnel.state.productLabel || "Fenster", d);
     }
   }
@@ -1019,42 +1977,65 @@
     btnStart.className = "quick-btn";
     btnStart.textContent = lang === "de" ? "Jetzt starten" : "Start now";
     btnStart.onclick = function () {
-      const label = window.Funnel && Funnel.state && Funnel.state.productLabel ? Funnel.state.productLabel : "Beratung";
-      const qual  = window.Funnel && Funnel.state ? (Funnel.state.data || {}) : {};
+      const label =
+        window.Funnel && Funnel.state && Funnel.state.productLabel
+          ? Funnel.state.productLabel
+          : "Beratung";
+      const qual = window.Funnel && Funnel.state ? Funnel.state.data || {} : {};
       openLeadForm(label, qual);
       wrap.remove();
     };
     const btnMore = document.createElement("button");
     btnMore.className = "quick-btn";
-    btnMore.textContent = lang === "de" ? "Weitere Frage stellen" : "Ask another question";
-    btnMore.onclick = function () { wrap.remove(); };
-    wrap.appendChild(btnStart); wrap.appendChild(btnMore);
-    if (chatLog) { chatLog.appendChild(wrap); chatLog.scrollTop = chatLog.scrollHeight; }
+    btnMore.textContent =
+      lang === "de" ? "Weitere Frage stellen" : "Ask another question";
+    btnMore.onclick = function () {
+      wrap.remove();
+    };
+    wrap.appendChild(btnStart);
+    wrap.appendChild(btnMore);
+    if (chatLog) {
+      chatLog.appendChild(wrap);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
   }
-  function offerFAQFollowup(lang){ maybeOfferStartCTA(lang); }
-  function offerContinueOrForm(lang){
+  function offerFAQFollowup(lang) {
+    maybeOfferStartCTA(lang);
+  }
+  function offerContinueOrForm(lang) {
     removeInlineOptions();
     const wrap = document.createElement("div");
     wrap.className = "quick-group";
     wrap.id = "continue-or-form";
     const cont = document.createElement("button");
     cont.className = "quick-btn";
-    cont.textContent = (lang==="de" ? "Weiter im Check" : "Continue the check");
-    cont.onclick = function(){ wrap.remove(); askNext(); };
+    cont.textContent = lang === "de" ? "Weiter im Check" : "Continue the check";
+    cont.onclick = function () {
+      wrap.remove();
+      askNext();
+    };
     const formBtn = document.createElement("button");
     formBtn.className = "quick-btn";
-    formBtn.textContent = (lang==="de" ? "Formular ausfüllen" : "Fill the form");
-    formBtn.onclick = function(){
-      const label = window.Funnel && Funnel.state && Funnel.state.productLabel ? Funnel.state.productLabel : "Beratung";
-      const qual  = window.Funnel && Funnel.state ? (Funnel.state.data || {}) : {};
+    formBtn.textContent =
+      lang === "de" ? "Formular ausfüllen" : "Fill the form";
+    formBtn.onclick = function () {
+      const label =
+        window.Funnel && Funnel.state && Funnel.state.productLabel
+          ? Funnel.state.productLabel
+          : "Beratung";
+      const qual = window.Funnel && Funnel.state ? Funnel.state.data || {} : {};
       openLeadForm(label, qual);
       wrap.remove();
     };
-    wrap.appendChild(cont); wrap.appendChild(formBtn);
-    if (chatLog){ chatLog.appendChild(wrap); chatLog.scrollTop = chatLog.scrollHeight; }
+    wrap.appendChild(cont);
+    wrap.appendChild(formBtn);
+    if (chatLog) {
+      chatLog.appendChild(wrap);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
   }
-  function removeInlineOptions(){
-    ["cta-start-wrap","continue-or-form"].forEach(function(id){
+  function removeInlineOptions() {
+    ["cta-start-wrap", "continue-or-form"].forEach(function (id) {
       const x = document.getElementById(id);
       if (x) x.remove();
     });
@@ -1074,6 +2055,7 @@
 #lead-float h3{margin:0 0 10px 0;font-size:18px}
 #lead-float form{display:grid;gap:10px}
 #lead-float input,#lead-float select{padding:12px 14px;border-radius:12px;border:1px solid #ccc;width:100%;min-height:48px;font-size:16px;background:#fff;color:#111}
+#lead-float .hidden{display:none}
 #lead-float .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
 #lead-float .cta{padding:12px 16px;border-radius:12px;border:none;background:#0f766e;color:#fff;cursor:pointer}
 #lead-float .ghost{padding:12px 16px;border-radius:12px;border:1px solid #ddd;background:#fafafa;cursor:pointer}
@@ -1087,24 +2069,60 @@
   <button type="button" id="lf_close" aria-label="Close">×</button>
   <h3>${lang === "de" ? "Kurzes Formular" : "Quick form"}</h3>
   <form id="lead-float-form">
-    <input type="text" id="lf_name"  placeholder="${lang === "de" ? "Name" : "Name"}" required>
-    <input type="text" id="lf_addr"  placeholder="${lang === "de" ? "Adresse (Straße + Nr.)" : "Address (Street + No.)"}" required>
-    <input type="text" id="lf_plz"   placeholder="${lang === "de" ? "PLZ" : "ZIP"}" required>
-    <input type="tel"  id="lf_phone" placeholder="${lang === "de" ? "Telefonnummer" : "Phone number"}" required>
+    <select id="lf_gender" required>
+      <option value="">${lang === "de" ? "Anrede *" : "Salutation *"}</option>
+      <option value="Herr">${lang === "de" ? "Herr" : "Mr."}</option>
+      <option value="Frau">${lang === "de" ? "Frau" : "Mrs./Ms."}</option>
+      <option value="Firma">${lang === "de" ? "Firma" : "Company"}</option>
+    </select>
+    <input type="text" id="lf_company" class="hidden" placeholder="${
+      lang === "de" ? "Firmenname *" : "Company name *"
+    }">
+    <input type="text" id="lf_first_name" placeholder="${
+      lang === "de" ? "Vorname *" : "First name *"
+    }" required>
+    <input type="text" id="lf_last_name" placeholder="${
+      lang === "de" ? "Nachname *" : "Last name *"
+    }" required>
+    <input type="email" id="lf_email" placeholder="${
+      lang === "de" ? "E-Mail *" : "Email *"
+    }" required>
+    <input type="text" id="lf_addr" placeholder="${
+      lang === "de" ? "Adresse (Straße + Nr.) *" : "Address (Street + No.) *"
+    }" required>
+    <input type="text" id="lf_plz" placeholder="${
+      lang === "de" ? "PLZ + Stadt *" : "ZIP + City *"
+    }" required>
+    <input type="text" id="lf_province" placeholder="${
+      lang === "de" ? "Bundesland *" : "Province *"
+    }" required>
+    <input type="tel" id="lf_phone" placeholder="${
+      lang === "de" ? "Telefonnummer *" : "Phone number *"
+    }" required>
     <select id="lf_best" required>
-      <option value="">${lang === "de" ? "Am besten erreichbar" : "Best time to reach"}</option>
-      <option>08:00–12:00</option><option>12:00–16:00</option><option>16:00–20:00</option><option>${lang === "de" ? "Egal / zu jeder Zeit" : "Any time"}</option>
+      <option value="">${
+        lang === "de" ? "Am besten erreichbar *" : "Best time to reach *"
+      }</option>
+      <option>08:00–12:00</option><option>12:00–16:00</option><option>16:00–20:00</option><option>${
+        lang === "de" ? "Egal / zu jeder Zeit" : "Any time"
+      }</option>
     </select>
     <label style="display:flex;gap:.6rem;align-items:flex-start;font-size:12px;line-height:1.35">
       <input type="checkbox" id="lf_ok" checked required style="margin-top:2px">
-      <span>${lang === "de"
-        ? 'Ich stimme der Kontaktaufnahme und Verarbeitung meiner Daten gemäß <a href="https://planville.de/datenschutz/" target="_blank">Datenschutzerklärung</a> zu.'
-        : 'I agree to be contacted and for my data to be processed according to the <a href="https://planville.de/datenschutz/" target="_blank">privacy policy</a>.'}
+      <span>${
+        lang === "de"
+          ? 'Ich stimme der Kontaktaufnahme und Verarbeitung meiner Daten gemäß <a href="https://planville.de/datenschutz/" target="_blank">Datenschutzerklärung</a> zu.'
+          : 'I agree to be contacted and for my data to be processed according to the <a href="https://planville.de/datenschutz/" target="_blank">privacy policy</a>.'
+      }
       </span>
     </label>
     <div class="actions">
-      <button type="button" class="ghost" id="lf_cancel">${lang === "de" ? "Abbrechen" : "Cancel"}</button>
-      <button type="submit" class="cta" id="lf_submit">${lang === "de" ? "Absenden" : "Submit"}</button>
+      <button type="button" class="ghost" id="lf_cancel">${
+        lang === "de" ? "Abbrechen" : "Cancel"
+      }</button>
+      <button type="submit" class="cta" id="lf_submit">${
+        lang === "de" ? "Absenden" : "Submit"
+      }</button>
     </div>
   </form>
 </div>`;
@@ -1113,72 +2131,493 @@
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    try{
-      if (qualification && qualification.property_street_number){ ov.querySelector("#lf_addr").value = String(qualification.property_street_number); }
-      if (qualification && qualification.plz){ ov.querySelector("#lf_plz").value = String(qualification.plz); }
-      if (qualification && qualification.contact_time_window){ ov.querySelector("#lf_best").value = String(qualification.contact_time_window); }
-    }catch(_){}
-
-    function close(){ document.body.style.overflow = prevOverflow || ""; ov.remove(); }
-    ov.querySelector("#lf_close").onclick = close;
-    ov.querySelector("#lf_cancel").onclick = close;
-    ov.addEventListener("click", function (e) { if (e.target && e.target.id === "lead-float-overlay") close(); });
-    document.addEventListener("keydown", function esc(e){ if (e.key === "Escape"){ close(); document.removeEventListener("keydown", esc); } });
-
-    ov.querySelector("#lead-float-form").addEventListener("submit", async function (e) {
-      e.preventDefault();
-      const name  = ov.querySelector("#lf_name").value.trim();
-      const addr  = ov.querySelector("#lf_addr").value.trim();
-      const plz   = ov.querySelector("#lf_plz").value.trim();
-      const phone = ov.querySelector("#lf_phone").value.trim();
-      const best  = ov.querySelector("#lf_best").value.trim();
-      const ok    = ov.querySelector("#lf_ok").checked;
-      if (!ok) { alert(lang === "de" ? "Bitte Zustimmung erteilen." : "Please give consent."); return; }
-
-      const qual = Object.assign({}, qualification || {}, {
-        property_street_number: addr, plz: plz, contact_time_window: best
-      });
-
+    // Load lead types from backend for mapping purposes
+    let leadTypesData = null;
+    (async function loadLeadTypes() {
       try {
-        if (typeof window.sendLeadToBackend === "function"){
-          await window.sendLeadToBackend({
-            productLabel: productLabel || "Beratung",
-            name: name, address: addr, email: "—", phone: phone,
-            origin: (__lastOrigin || "chat") + "-float",
-            qualification: qual
-          });
+        const res = await fetch(_api("/leadtype"));
+        const data = await res.json();
+        if (data && data.lead_types && Array.isArray(data.lead_types)) {
+          leadTypesData = data.lead_types;
         }
-        appendMessage(lang==="de" ? "Danke! Wir melden uns in Kürze." : "Thank you! We’ll contact you shortly.", "bot");
       } catch (err) {
-        console.error(err);
-        appendMessage(lang==="de" ? "Senden fehlgeschlagen. Bitte später erneut versuchen." : "Submission failed. Please try again later.", "bot");
-      } finally {
-        close();
+        console.error("Failed to load lead types:", err);
+      }
+    })();
+
+    // Conditional company name field display
+    const genderSelect = ov.querySelector("#lf_gender");
+    const companyField = ov.querySelector("#lf_company");
+    genderSelect.addEventListener("change", function () {
+      if (genderSelect.value === "Firma") {
+        companyField.classList.remove("hidden");
+        companyField.required = true;
+      } else {
+        companyField.classList.add("hidden");
+        companyField.required = false;
+        companyField.value = "";
       }
     });
+
+    // Google Places Autocomplete via backend proxy
+    let selectedPlace = null;
+    const addressInput = ov.querySelector("#lf_addr");
+    const plzInput = ov.querySelector("#lf_plz");
+    const provinceInput = ov.querySelector("#lf_province");
+
+    // Custom autocomplete using backend proxy
+    let autocompleteTimeout = null;
+    let autocompleteDropdown = null;
+
+    function createAutocompleteDropdown() {
+      if (!autocompleteDropdown) {
+        autocompleteDropdown = document.createElement("div");
+        autocompleteDropdown.style.cssText = `
+          position: absolute;
+          background: white;
+          border: 1px solid #ccc;
+          border-radius: 8px;
+          max-height: 200px;
+          overflow-y: auto;
+          z-index: 10000;
+          width: ${addressInput.offsetWidth}px;
+          box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        `;
+        addressInput.parentElement.style.position = "relative";
+        addressInput.parentElement.appendChild(autocompleteDropdown);
+      }
+      return autocompleteDropdown;
+    }
+
+    function hideAutocomplete() {
+      if (autocompleteDropdown) {
+        autocompleteDropdown.style.display = "none";
+      }
+    }
+
+    function showAutocomplete() {
+      if (autocompleteDropdown) {
+        autocompleteDropdown.style.display = "block";
+      }
+    }
+
+    async function handlePlaceSelection(placeId) {
+      try {
+        const res = await fetch(
+          _api("/places/details?place_id=" + encodeURIComponent(placeId))
+        );
+        const data = await res.json();
+
+        if (data.status === "OK" && data.result) {
+          const place = data.result;
+          const components = place.address_components || [];
+
+          // Extract address components
+          const streetNumber = components.find((c) =>
+            c.types.includes("street_number")
+          );
+          const route = components.find((c) => c.types.includes("route"));
+          const postalCode = components.find((c) =>
+            c.types.includes("postal_code")
+          );
+          const locality = components.find((c) => c.types.includes("locality"));
+          const province = components.find((c) =>
+            c.types.includes("administrative_area_level_1")
+          );
+
+          // Store place data
+          selectedPlace = {
+            lat: place.geometry?.location?.lat || null,
+            lng: place.geometry?.location?.lng || null,
+            formatted_address: place.formatted_address,
+          };
+
+          // Fill form fields
+          if (streetNumber && route) {
+            addressInput.value = route.long_name + " " + streetNumber.long_name;
+          } else if (route) {
+            addressInput.value = route.long_name;
+          }
+
+          if (postalCode && locality) {
+            plzInput.value = postalCode.long_name + " " + locality.long_name;
+          }
+
+          if (province) {
+            provinceInput.value = province.long_name;
+          }
+        }
+      } catch (err) {
+        console.error("Failed to get place details:", err);
+      }
+      hideAutocomplete();
+    }
+
+    addressInput.addEventListener("input", async function () {
+      const query = addressInput.value.trim();
+
+      clearTimeout(autocompleteTimeout);
+
+      if (query.length < 1) {
+        hideAutocomplete();
+        return;
+      }
+
+      autocompleteTimeout = setTimeout(async function () {
+        try {
+          const res = await fetch(
+            _api("/places/autocomplete?input=" + encodeURIComponent(query))
+          );
+          const data = await res.json();
+
+          if (
+            data.status === "OK" &&
+            data.predictions &&
+            data.predictions.length > 0
+          ) {
+            const dropdown = createAutocompleteDropdown();
+            dropdown.innerHTML = "";
+
+            data.predictions.forEach(function (prediction) {
+              const item = document.createElement("div");
+              item.style.cssText = `
+                padding: 10px;
+                cursor: pointer;
+                border-bottom: 1px solid #eee;
+              `;
+              item.textContent = prediction.description;
+              item.addEventListener("mouseenter", function () {
+                item.style.backgroundColor = "#f0f0f0";
+              });
+              item.addEventListener("mouseleave", function () {
+                item.style.backgroundColor = "white";
+              });
+              item.addEventListener("click", function () {
+                handlePlaceSelection(prediction.place_id);
+              });
+              dropdown.appendChild(item);
+            });
+
+            showAutocomplete();
+          } else {
+            hideAutocomplete();
+          }
+        } catch (err) {
+          console.error("Autocomplete error:", err);
+          hideAutocomplete();
+        }
+      }, 300);
+    });
+
+    // Hide autocomplete when clicking outside
+    document.addEventListener("click", function (e) {
+      if (
+        e.target !== addressInput &&
+        !autocompleteDropdown?.contains(e.target)
+      ) {
+        hideAutocomplete();
+      }
+    });
+
+    // Pre-fill form fields from qualification data
+    try {
+      if (qualification && qualification.property_street_number) {
+        ov.querySelector("#lf_addr").value = String(
+          qualification.property_street_number
+        );
+      }
+      if (qualification && qualification.plz) {
+        ov.querySelector("#lf_plz").value = String(qualification.plz);
+      }
+      if (qualification && qualification.province) {
+        ov.querySelector("#lf_province").value = String(qualification.province);
+      }
+      if (qualification && qualification.contact_time_window) {
+        ov.querySelector("#lf_best").value = String(
+          qualification.contact_time_window
+        );
+      }
+      // If we have lat/lng from qualification, store them in selectedPlace
+      if (qualification && qualification.latitude && qualification.longitude) {
+        selectedPlace = {
+          lat: qualification.latitude,
+          lng: qualification.longitude,
+          formatted_address: qualification.property_street_number || "",
+        };
+      }
+    } catch (_) {}
+
+    function close() {
+      document.body.style.overflow = prevOverflow || "";
+      ov.remove();
+    }
+    ov.querySelector("#lf_close").onclick = close;
+    ov.querySelector("#lf_cancel").onclick = close;
+    ov.addEventListener("click", function (e) {
+      if (e.target && e.target.id === "lead-float-overlay") close();
+    });
+    document.addEventListener("keydown", function esc(e) {
+      if (e.key === "Escape") {
+        close();
+        document.removeEventListener("keydown", esc);
+      }
+    });
+
+    ov.querySelector("#lead-float-form").addEventListener(
+      "submit",
+      async function (e) {
+        e.preventDefault();
+
+        // Collect form data
+        const gender = ov.querySelector("#lf_gender").value.trim();
+        const company = ov.querySelector("#lf_company").value.trim();
+        const firstName = ov.querySelector("#lf_first_name").value.trim();
+        const lastName = ov.querySelector("#lf_last_name").value.trim();
+        const email = ov.querySelector("#lf_email").value.trim();
+        const addr = ov.querySelector("#lf_addr").value.trim();
+        const plz = ov.querySelector("#lf_plz").value.trim();
+        const province = ov.querySelector("#lf_province").value.trim();
+        const phone = ov.querySelector("#lf_phone").value.trim();
+        const best = ov.querySelector("#lf_best").value.trim();
+        const ok = ov.querySelector("#lf_ok").checked;
+
+        if (!ok) {
+          alert(
+            lang === "de"
+              ? "Bitte Zustimmung erteilen."
+              : "Please give consent."
+          );
+          return;
+        }
+
+        // TODO: need to confirm these behavior for lead type "Bitte wählen Sie ein Thema:" question
+        // Automatically determine lead_type_id based on selected product
+        function getLeadTypeIdFromProduct(product) {
+          if (!leadTypesData) return null;
+
+          // Map product to lead type key
+          const productToKeyMap = {
+            heatpump: "waermepumpe",
+            pv: "pv",
+            tenant: "mieterstrom",
+            roof: "dach",
+            aircon: "klimaanlage",
+            window: "fenster",
+          };
+
+          const leadTypeKey = productToKeyMap[product];
+
+          // Find the lead type by key and return its id
+          const leadType = leadTypesData.find((lt) => lt.key === leadTypeKey);
+          return leadType ? leadType.id : null;
+        }
+
+        const leadTypeId = getLeadTypeIdFromProduct(
+          window.Funnel?.state?.product
+        );
+
+        // Build notes from qualification questions
+        function buildNotesFromQualification(qual, lang) {
+          if (!qual || typeof qual !== "object") return null;
+
+          const questionLabels = {
+            de: {
+              install_location: "Wo soll die PV-Anlage installiert werden",
+              building_type: "Gebäudetyp",
+              self_occupied: "Bewohnen Sie die Immobilie selbst",
+              ownership: "Sind Sie Eigentümer der Immobilie",
+              roof_type: "Dachtyp",
+              storage_interest: "Interesse an Batteriespeicher",
+              install_timeline: "Wann soll das System installiert werden",
+              property_street_number: "Adresse (Straße + Nr.)",
+              contact_time_window: "Beste Erreichbarkeit",
+              plz: "PLZ",
+              living_area: "Wohnfläche",
+              heating_type: "Heizungsart",
+              insulation: "Dämmung",
+              rooms_count: "Anzahl Räume",
+              cool_area: "Zu kühlende Fläche",
+              area_sqm: "Dachfläche",
+              issues: "Probleme",
+              units: "Anzahl Einheiten",
+              window_type: "Fensterart",
+              window_count: "Anzahl Fenster",
+              needs_balcony_door: "Benötigen Sie eine Balkontür",
+              window_accessory: "Fensterzubehör",
+            },
+            en: {
+              install_location: "Where should the PV system be installed",
+              building_type: "Building type",
+              self_occupied: "Do you live in the property yourself",
+              ownership: "Are you the owner of the property",
+              roof_type: "Roof type",
+              storage_interest: "Interest in battery storage",
+              install_timeline: "When should the system be installed",
+              property_street_number: "Address (Street + No.)",
+              contact_time_window: "Best time to reach",
+              plz: "ZIP",
+              living_area: "Living area",
+              heating_type: "Heating type",
+              insulation: "Insulation",
+              rooms_count: "Number of rooms",
+              cool_area: "Cooling area",
+              area_sqm: "Roof area",
+              issues: "Issues",
+              units: "Number of units",
+              window_type: "Window type",
+              window_count: "Number of windows",
+              needs_balcony_door: "Do you need a balcony door",
+              window_accessory: "Window accessories",
+            },
+          };
+
+          const labels = questionLabels[lang] || questionLabels.de;
+          const notes = [];
+
+          for (const [key, value] of Object.entries(qual)) {
+            // Skip internal/meta fields
+            if (
+              key.startsWith("__") ||
+              !value ||
+              value === "" ||
+              value === null ||
+              value === undefined
+            ) {
+              continue;
+            }
+
+            // Skip fields that are already in the ChatbotLeadPayload
+            const skipFields = [
+              "property_street_number",
+              "plz",
+              "contact_time_window",
+              "province",
+              "latitude",
+              "longitude",
+            ];
+            if (skipFields.includes(key)) {
+              continue;
+            }
+
+            const label = labels[key] || key;
+            let displayValue = value;
+
+            // Format boolean values
+            if (typeof value === "boolean") {
+              displayValue = value
+                ? lang === "de"
+                  ? "Ja"
+                  : "Yes"
+                : lang === "de"
+                ? "Nein"
+                : "No";
+            }
+
+            notes.push(`${label}: ${displayValue}`);
+          }
+
+          return notes.length > 0 ? notes.join("\n") : null;
+        }
+
+        const notes = buildNotesFromQualification(qualification || {}, lang);
+
+        // Validate that latitude and longitude are available
+        if (!selectedPlace || !selectedPlace.lat || !selectedPlace.lng) {
+          alert(
+            lang === "de"
+              ? "Bitte wählen Sie eine Adresse aus der Autovervollständigung aus."
+              : "Please select an address from the autocomplete."
+          );
+          return;
+        }
+
+        // Build payload for new POST /lead endpoint
+        const payload = {
+          gender: gender,
+          first_name: firstName,
+          last_name: lastName,
+          company: company || null,
+          email: email,
+          phone1: phone,
+          street_and_number: addr,
+          zip_and_city: plz,
+          province: province,
+          latitude: selectedPlace.lat,
+          longitude: selectedPlace.lng,
+          lead_type_id: leadTypeId || null,
+          notes: notes,
+        };
+
+        try {
+          // Call new POST /lead endpoint
+          const res = await fetch(_api("/lead"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (!res.ok) {
+            const errorData = await res.json().catch(() => ({}));
+            throw new Error(errorData.error || "Submission failed");
+          }
+
+          appendMessage(
+            lang === "de"
+              ? "Danke! Wir melden uns in Kürze."
+              : "Thank you! We'll contact you shortly.",
+            "bot"
+          );
+        } catch (err) {
+          console.error("Lead submission error:", err);
+          const errorMsg =
+            lang === "de"
+              ? "Senden fehlgeschlagen. Bitte später erneut versuchen."
+              : "Submission failed. Please try again later.";
+          appendMessage(errorMsg, "bot");
+          alert(errorMsg + "\n\n" + err.message);
+        } finally {
+          close();
+        }
+      }
+    );
   }
 
   /* ---------------------------
      Nudge (interrupt)
   ----------------------------*/
-  function nudgeToFormFromInterrupt(lang){
-    try{
-      if (document.getElementById("lead-contact-form-chat") || document.getElementById("lead-float-overlay")) return;
-      const productLabel = (window.Funnel && Funnel.state && Funnel.state.productLabel) ? Funnel.state.productLabel : "Photovoltaik";
-      const qualification = (window.Funnel && Funnel.state) ? (Funnel.state.data || {}) : {};
-      const msg = (lang==="de") ? "Alles klar! Dann bräuchten wir nur noch deine Kontaktdaten:" : "All right! We just need your contact details:";
+  function nudgeToFormFromInterrupt(lang) {
+    try {
+      if (
+        document.getElementById("lead-contact-form-chat") ||
+        document.getElementById("lead-float-overlay")
+      )
+        return;
+      const productLabel =
+        window.Funnel && Funnel.state && Funnel.state.productLabel
+          ? Funnel.state.productLabel
+          : "Photovoltaik";
+      const qualification =
+        window.Funnel && Funnel.state ? Funnel.state.data || {} : {};
+      const msg =
+        lang === "de"
+          ? "Alles klar! Dann bräuchten wir nur noch deine Kontaktdaten:"
+          : "All right! We just need your contact details:";
       appendMessage(msg, "bot");
-      if (typeof window.showSummaryFromFunnel === "function") window.showSummaryFromFunnel(qualification);
+      if (typeof window.showSummaryFromFunnel === "function")
+        window.showSummaryFromFunnel(qualification);
       openLeadForm(productLabel, qualification);
-    }catch(_){}
+    } catch (_) {}
   }
 
-  window.startGreetingFlow  = startGreetingFlow;
+  window.startGreetingFlow = startGreetingFlow;
   window.showProductOptions = showProductOptions;
-  window.appendMessage      = appendMessage;
-  window.sendFAQ            = sendFAQ;
+  window.appendMessage = appendMessage;
+  window.sendFAQ = sendFAQ;
 
   // A/B variant sticky
-  const AB = { variant: localStorage.getItem("ab_variant") || (Math.random() < 0.5 ? "A" : "B") };
+  const AB = {
+    variant:
+      localStorage.getItem("ab_variant") || (Math.random() < 0.5 ? "A" : "B"),
+  };
   localStorage.setItem("ab_variant", AB.variant);
 })();
